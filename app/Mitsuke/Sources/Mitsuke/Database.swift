@@ -15,6 +15,9 @@ struct Listing: Identifiable, Hashable {
     let firstSeen: Date
     let status: String
     let filterReason: String?
+    let score: Int?
+    let scoreReason: String?
+    var feedback: Int?  // 1 = 👍, -1 = 👎
 
     var passed: Bool { status == "passed" || status == "notified" || status == "scored" }
     var mercariID: String { String(id.split(separator: ":").last ?? "") }
@@ -32,6 +35,7 @@ struct Search: Identifiable, Hashable {
 }
 
 struct GlobalSettings: Equatable {
+    var taste = ""
     var priceMax: Int?
     var outerPriceMax: Int?
     var excludeKeywords: [String] = []
@@ -43,6 +47,7 @@ struct RunInfo {
     let finishedAt: Date?
     let new: Int
     let notified: Int
+    let costUSD: Double
     let errors: [String]
 }
 
@@ -121,7 +126,8 @@ final class Database {
         let where_ = includeFiltered ? "" : "WHERE status NOT IN ('seeded', 'filtered')"
         var result: [Listing] = []
         try run("""
-            SELECT id, search, title, price_jpy, image_url, url, buyee_url, first_seen, status, filter_reason
+            SELECT id, search, title, price_jpy, image_url, url, buyee_url, first_seen, status, filter_reason,
+                   score, score_reason, feedback
             FROM listings \(where_) ORDER BY first_seen DESC, rowid DESC LIMIT ?
             """, [.int(limit)]) { s in
             result.append(Listing(
@@ -134,21 +140,40 @@ final class Database {
                 buyeeURL: self.text(s, 6).flatMap(URL.init(string:)),
                 firstSeen: Date(timeIntervalSince1970: TimeInterval(self.int(s, 7) ?? 0)),
                 status: self.text(s, 8) ?? "",
-                filterReason: self.text(s, 9)
+                filterReason: self.text(s, 9),
+                score: self.int(s, 10),
+                scoreReason: self.text(s, 11),
+                feedback: self.int(s, 12)
             ))
         }
         return result
     }
 
+    func setFeedback(listingID: String, value: Int?) throws {
+        try run("UPDATE listings SET feedback = ?, feedback_at = ? WHERE id = ?",
+                [.int(value), .int(value == nil ? nil : Int(Date().timeIntervalSince1970)), .text(listingID)])
+    }
+
+    /// 이번 달 채점 비용 (달러)
+    func monthCostUSD() throws -> Double {
+        let cal = Calendar.current
+        let start = cal.date(from: cal.dateComponents([.year, .month], from: Date()))!
+        var cost = 0.0
+        try run("SELECT COALESCE(SUM(score_cost_usd), 0) FROM listings WHERE first_seen >= ?",
+                [.int(Int(start.timeIntervalSince1970))]) { s in cost = sqlite3_column_double(s, 0) }
+        return cost
+    }
+
     func lastRun() throws -> RunInfo? {
         var info: RunInfo?
-        try run("SELECT started_at, finished_at, new, notified, errors FROM runs ORDER BY id DESC LIMIT 1") { s in
+        try run("SELECT started_at, finished_at, new, notified, COALESCE(cost_usd, 0), errors FROM runs ORDER BY id DESC LIMIT 1") { s in
             info = RunInfo(
                 startedAt: Date(timeIntervalSince1970: TimeInterval(self.int(s, 0) ?? 0)),
                 finishedAt: self.int(s, 1).map { Date(timeIntervalSince1970: TimeInterval($0)) },
                 new: self.int(s, 2) ?? 0,
                 notified: self.int(s, 3) ?? 0,
-                errors: self.json(self.text(s, 4), as: [String].self) ?? []
+                costUSD: sqlite3_column_double(s, 4),
+                errors: self.json(self.text(s, 5), as: [String].self) ?? []
             )
         }
         return info
@@ -201,6 +226,7 @@ final class Database {
             if let k = self.text(s, 0) { raw[k] = self.text(s, 1) }
         }
         return GlobalSettings(
+            taste: json(raw["taste"], as: String.self) ?? "",
             priceMax: json(raw["price_max"], as: Int?.self) ?? nil,
             outerPriceMax: json(raw["outer_price_max"], as: Int?.self) ?? nil,
             excludeKeywords: json(raw["exclude_keywords"], as: [String].self) ?? [],
@@ -210,6 +236,7 @@ final class Database {
 
     func saveSettings(_ g: GlobalSettings) throws {
         let pairs: [(String, String)] = [
+            ("taste", jsonString(g.taste)),
             ("price_max", jsonString(g.priceMax)),
             ("outer_price_max", jsonString(g.outerPriceMax)),
             ("exclude_keywords", jsonString(g.excludeKeywords)),

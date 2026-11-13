@@ -2,7 +2,7 @@
 
 메루카리에 새로 올라온 매물 중 취향에 맞는 것만 골라 맥 알림으로 알려주고, Buyee 구매 페이지로 바로 연결해주는 개인용 직구 비서. 자세한 설계는 [docs/DESIGN.md](docs/DESIGN.md), 만들면서 겪은 일은 [docs/devlog/](docs/devlog/).
 
-현재: 메루카리 검색 → 신규 감지 → 규칙 필터(예산·카테고리·제외 키워드) → Buyee 링크 → 맥 알림, 그리고 매물을 보고 검색어를 편집하는 맥 앱.
+현재: 메루카리 검색 → 신규 감지 → 규칙 필터(예산·카테고리·제외 키워드) → LLM 채점(Claude Haiku 5.5) → Buyee 링크 → 90점 이상만 맥 알림, 그리고 매물을 보고 👍👎·검색어·취향 기준을 편집하는 맥 앱.
 
 ## 설치
 
@@ -12,6 +12,14 @@ python3 -m venv .venv
 ./scripts/build_app.sh --open        # 맥 앱 빌드 → ~/Applications 설치 → 실행 (Xcode 필요)
 ./scripts/install_launchd.sh         # 1시간마다 자동 실행 등록
 ```
+
+LLM 채점을 쓰려면 Anthropic API 키를 키체인에 넣는다 (입력 창에 키를 붙여 넣음).
+
+```bash
+security add-generic-password -s mitsuke-anthropic -a mitsuke -w
+```
+
+키가 없거나 앱 설정의 취향 기준이 비어 있으면 채점 없이 규칙 통과 매물을 모두 알림으로 보낸다.
 
 처음 알림을 보낼 때 macOS가 "미츠케" 알림 허용 여부를 묻는다. 허용해야 알림이 뜬다.
 

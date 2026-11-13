@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS searches (
     created_at       INTEGER NOT NULL
 );
 
--- 전체 설정. 값은 JSON (price_max, outer_price_max, exclude_keywords, exclude_categories)
+-- 전체 설정. 값은 JSON (taste, price_max, outer_price_max, exclude_keywords, exclude_categories)
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -69,6 +69,8 @@ CREATE TABLE IF NOT EXISTS runs (
     fetched     INTEGER,
     new         INTEGER,
     notified    INTEGER,
+    scored      INTEGER,
+    cost_usd    REAL,
     errors      TEXT
 );
 
@@ -85,6 +87,7 @@ CREATE TABLE IF NOT EXISTS purchases (
 OUTER_CATEGORIES = (12, 31)  # レディース / メンズ > ジャケット/アウター
 
 DEFAULT_SETTINGS = {
+    "taste": "",  # 취향 기준 (자유 서술). 비어 있으면 채점하지 않는다
     "price_max": None,
     "outer_price_max": None,
     "exclude_keywords": [],
@@ -109,7 +112,11 @@ class Store:
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(listings)")}
         if "category_id" not in cols:
             self.conn.execute("ALTER TABLE listings ADD COLUMN category_id INTEGER")
-            self.conn.commit()
+        run_cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(runs)")}
+        for col, kind in (("scored", "INTEGER"), ("cost_usd", "REAL")):
+            if col not in run_cols:
+                self.conn.execute(f"ALTER TABLE runs ADD COLUMN {col} {kind}")
+        self.conn.commit()
 
     def close(self):
         self.conn.close()
@@ -131,12 +138,14 @@ class Store:
                 fresh.append(listing)
         return fresh
 
-    def add(self, listing: Listing, status: str, filter_reason: str | None = None, buyee_url: str | None = None):
+    def add(self, listing: Listing, status: str, filter_reason: str | None = None, buyee_url: str | None = None,
+            score: int | None = None, score_reason: str | None = None, score_model: str | None = None,
+            score_cost_usd: float | None = None):
         self.conn.execute(
             """INSERT OR IGNORE INTO listings
                (id, search, title, price_jpy, image_url, url, created_at, category_id,
-                first_seen, status, filter_reason, buyee_url)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                first_seen, status, filter_reason, buyee_url, score, score_reason, score_model, score_cost_usd)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 listing.id,
                 listing.search,
@@ -150,9 +159,33 @@ class Store:
                 status,
                 filter_reason,
                 buyee_url,
+                score,
+                score_reason,
+                score_model,
+                score_cost_usd,
             ),
         )
         self.conn.commit()
+
+    def set_feedback(self, listing_id: str, value: int | None) -> bool:
+        """1 = 👍, -1 = 👎, None = 지우기. 해당 매물이 있으면 True."""
+        cur = self.conn.execute(
+            "UPDATE listings SET feedback = ?, feedback_at = ? WHERE id = ?",
+            (value, int(time.time()) if value is not None else None, listing_id),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
+
+    def feedback_examples(self, limit: int = 12) -> list[dict]:
+        """채점 프롬프트에 넣을 최근 피드백. 👍와 👎를 반씩 섞는다."""
+        half = limit // 2
+        rows = []
+        for sign in (1, -1):
+            rows += self.conn.execute(
+                "SELECT title, price_jpy, feedback FROM listings WHERE feedback = ? ORDER BY feedback_at DESC LIMIT ?",
+                (sign, half),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
     def set_status(self, listing_id: str, status: str):
         self.conn.execute("UPDATE listings SET status = ? WHERE id = ?", (status, listing_id))
@@ -234,6 +267,14 @@ class Store:
             )
         return True
 
+    def month_cost_usd(self) -> float:
+        """이번 달 채점에 쓴 비용 (달러)."""
+        start = time.mktime(time.localtime()[:2] + (1, 0, 0, 0, 0, 0, -1))
+        row = self.conn.execute(
+            "SELECT COALESCE(SUM(score_cost_usd), 0) FROM listings WHERE first_seen >= ?", (int(start),)
+        ).fetchone()
+        return row[0]
+
     # ── 실행 기록 ────────────────────────────────────────────
 
     def start_run(self) -> int:
@@ -241,10 +282,12 @@ class Store:
         self.conn.commit()
         return cur.lastrowid
 
-    def finish_run(self, run_id: int, fetched: int, new: int, notified: int, errors: list[str]):
+    def finish_run(self, run_id: int, fetched: int, new: int, notified: int, errors: list[str],
+                   scored: int = 0, cost_usd: float = 0.0):
         self.conn.execute(
-            "UPDATE runs SET finished_at = ?, fetched = ?, new = ?, notified = ?, errors = ? WHERE id = ?",
-            (int(time.time()), fetched, new, notified, json.dumps(errors, ensure_ascii=False), run_id),
+            """UPDATE runs SET finished_at = ?, fetched = ?, new = ?, notified = ?, scored = ?, cost_usd = ?, errors = ?
+               WHERE id = ?""",
+            (int(time.time()), fetched, new, notified, scored, cost_usd, json.dumps(errors, ensure_ascii=False), run_id),
         )
         self.conn.commit()
 

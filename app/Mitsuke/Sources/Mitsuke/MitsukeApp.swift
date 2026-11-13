@@ -23,7 +23,7 @@ struct MitsukeApp: App {
         Window("미츠케 설정", id: "settings") {
             SettingsView().environmentObject(model)
         }
-        .defaultSize(width: 560, height: 560)
+        .defaultSize(width: 580, height: 720)
         .windowResizability(.contentSize)
     }
 }

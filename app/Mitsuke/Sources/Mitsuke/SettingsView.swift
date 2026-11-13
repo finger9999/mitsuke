@@ -18,6 +18,16 @@ struct SettingsView: View {
     var body: some View {
         Form {
             Section {
+                TextEditor(text: $global.taste)
+                    .font(.body).frame(minHeight: 90)
+            } header: {
+                Text("취향 기준")
+            } footer: {
+                Text("AI가 이 내용을 보고 매물에 0~100점을 매겨요. 90점 이상만 알림이 와요. \"무조건\"이라고 쓴 조건은 확인될 때만 90점 이상을 줘요.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+
+            Section {
                 YenField(label: "기본 예산", value: $global.priceMax, placeholder: "제한 없음")
                 YenField(label: "아우터 예산", value: $global.outerPriceMax, placeholder: "기본 예산과 같음")
                 TextField("제외 키워드", text: $excludeText, prompt: Text("쉼표로 구분 (예: パジャマ, ジャンク)"))

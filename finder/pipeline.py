@@ -1,6 +1,8 @@
-"""단계 연결: 수집 → 신규 감지 → 규칙 필터 → Buyee 링크 → 저장 → 알림.
+"""단계 연결: 수집 → 신규 감지 → 규칙 필터 → LLM 채점 → Buyee 링크 → 저장 → 알림.
 
-0단계라서 점수가 없다. 규칙을 통과한 매물은 모두 알림으로 보낸다.
+채점기(scorer)가 없으면(API 키나 취향 기준이 없을 때) 0단계처럼 규칙 통과 매물을 모두 알림으로 보낸다.
+채점기가 있으면 notify_score점 이상만 알림을 보내고, 나머지는 앱 목록에만 쌓인다.
+실행당 LLM 호출 수에 상한이 있고, 상한을 넘거나 채점에 실패한 매물은 점수 없이 목록에 올린다.
 """
 
 import logging
@@ -23,6 +25,8 @@ class RunStats:
     seeded: int = 0
     filtered: int = 0
     notified: int = 0
+    scored: int = 0
+    cost_usd: float = 0.0
     errors: list[str] = field(default_factory=list)
 
 
@@ -60,8 +64,13 @@ def learn_categories(listings, chain_fn=mercari.fetch_category_chain, sleep=time
 
 
 def run(config: dict, store: Store, notify: bool = True, search_fn=mercari.search, sleep=time.sleep,
-        chain_fn=mercari.fetch_category_chain) -> RunStats:
+        chain_fn=mercari.fetch_category_chain, scorer=None, describe_fn=mercari.fetch_description) -> RunStats:
     stats = RunStats()
+    llm_limit = config.get("llm_calls_per_run", 30)
+    notify_score = config.get("notify_score", 90)
+    # 채점할 카테고리. 비어 있으면 규칙 통과 매물 전부, 있으면 그 카테고리(와 그 아래)만 채점한다
+    score_categories = {int(c) for c in config.get("score_categories") or []}
+    budget_left = config.get("llm_monthly_budget_usd", 1.0) - store.month_cost_usd()
     defaults = config.get("defaults", {})
     delay = config.get("request_delay_seconds", 8)
     page_size = config.get("page_size", 60)
@@ -103,8 +112,32 @@ def run(config: dict, store: Store, notify: bool = True, search_fn=mercari.searc
                 continue
 
             url = buyee.item_url(listing.id)
-            store.add(listing, status="passed", buyee_url=url)
-            if notify and notifier.notify(listing, url):
+            if scorer is None:
+                store.add(listing, status="passed", buyee_url=url)
+                if notify and notifier.notify(listing, url):
+                    store.set_status(listing.id, "notified")
+                    stats.notified += 1
+                continue
+
+            if score_categories and not score_categories & set(categories.lineage(listing.category_id)):
+                # 지금 찾는 종류가 아니면 LLM을 부르지 않고 목록에만 올린다
+                store.add(listing, status="passed", buyee_url=url)
+                continue
+            if stats.scored >= llm_limit or stats.cost_usd >= budget_left:
+                store.add(listing, status="passed", buyee_url=url, score_reason="LLM 호출·비용 상한을 넘어 채점하지 않음")
+                continue
+            try:
+                result = scorer.score(listing, describe_fn(listing.id))
+            except Exception as e:  # 채점 실패도 목록에는 올려서 놓치지 않는다
+                log.warning("채점 실패 %s: %s", listing.id, e)
+                stats.errors.append(f"채점 {listing.id}: {e}")
+                store.add(listing, status="passed", buyee_url=url, score_reason=f"채점 실패: {e}")
+                continue
+            stats.scored += 1
+            stats.cost_usd += result.cost_usd
+            store.add(listing, status="scored", buyee_url=url, score=result.score, score_reason=result.reason,
+                      score_model=result.model, score_cost_usd=result.cost_usd)
+            if notify and result.score >= notify_score and notifier.notify(listing, url, result.score, result.reason):
                 store.set_status(listing.id, "notified")
                 stats.notified += 1
 

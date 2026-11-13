@@ -34,3 +34,12 @@ def test_runs():
     store.finish_run(run_id, 10, 2, 1, [])
     row = store.conn.execute("SELECT * FROM runs").fetchone()
     assert row["finished_at"] and row["new"] == 2
+
+
+def test_feedback():
+    from finder.models import Listing
+    store = Store(":memory:")
+    store.add(Listing("mercari:m1", "s", "코트", 5000, None, "u"), status="scored")
+    assert store.set_feedback("mercari:m1", 1)
+    assert not store.set_feedback("mercari:nope", 1)
+    assert store.feedback_examples() == [{"title": "코트", "price_jpy": 5000, "feedback": 1}]

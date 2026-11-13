@@ -16,10 +16,10 @@ log = logging.getLogger(__name__)
 NOTIFIER_BIN = Path.home() / "Applications/Mitsuke.app/Contents/MacOS/Mitsuke"
 
 
-def notify(listing: Listing, buyee_url: str) -> bool:
-    title = "미츠케 · 찾았다"
+def notify(listing: Listing, buyee_url: str, score: int | None = None, reason: str | None = None) -> bool:
+    title = f"미츠케 · {score}점" if score is not None else "미츠케 · 찾았다"
     subtitle = f"¥{listing.price_jpy:,} · {listing.search}"
-    message = listing.title
+    message = f"{listing.title}\n{reason}" if reason else listing.title
 
     if NOTIFIER_BIN.exists():
         cmd = [str(NOTIFIER_BIN), "--notify", "--title", title, "--subtitle", subtitle, "--message", message,

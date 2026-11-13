@@ -75,11 +75,18 @@ struct ListingCard: View {
                 .aspectRatio(1, contentMode: .fit)
                 .overlay(alignment: .topLeading) { badge.padding(6) }
                 .opacity(listing.passed ? 1 : 0.55)
-            Text(Fmt.yen(listing.priceJPY)).font(.headline)
+            HStack {
+                Text(Fmt.yen(listing.priceJPY)).font(.headline)
+                if let score = listing.score { ScoreBadge(score: score) }
+                Spacer()
+                FeedbackButtons(listing: listing)
+            }
             Text(listing.title).font(.caption).lineLimit(2).frame(height: 30, alignment: .top)
             Text("\(listing.search) · \(Fmt.ago(listing.firstSeen))").font(.caption2).foregroundStyle(.secondary)
             if let reason = listing.filterReason {
                 Text(reason).font(.caption2).foregroundStyle(.orange).lineLimit(1)
+            } else if let reason = listing.scoreReason {
+                Text(reason).font(.caption2).foregroundStyle(.secondary).lineLimit(2).help(reason)
             }
         }
         .contentShape(Rectangle())

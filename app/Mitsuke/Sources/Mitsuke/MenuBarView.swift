@@ -63,7 +63,7 @@ struct MenuBarView: View {
     private var lastRunText: String {
         guard let run = model.lastRun else { return "아직 실행 기록 없음" }
         guard let finished = run.finishedAt else { return "확인 중…" }
-        var text = "마지막 확인 \(Fmt.ago(finished)) · 새 매물 \(run.new)개"
+        var text = "마지막 확인 \(Fmt.ago(finished)) · 새 매물 \(run.new)개 · 이번 달 $\(String(format: "%.2f", model.monthCostUSD))"
         if !run.errors.isEmpty { text += " · 오류 \(run.errors.count)" }
         return text
     }
@@ -100,12 +100,13 @@ struct ListingRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(Fmt.yen(listing.priceJPY)).font(.callout.weight(.semibold))
+                        if let score = listing.score { ScoreBadge(score: score) }
                         if isNew {
                             Text("NEW").font(.caption2.weight(.bold)).foregroundStyle(.white)
                                 .padding(.horizontal, 4).background(.red, in: .rect(cornerRadius: 3))
                         }
                     }
-                    Text(listing.title).font(.caption).lineLimit(2)
+                    Text(listing.scoreReason ?? listing.title).font(.caption).lineLimit(2)
                     Text("\(listing.search) · \(Fmt.ago(listing.firstSeen))")
                         .font(.caption2).foregroundStyle(.secondary)
                 }
@@ -130,5 +131,41 @@ struct Thumbnail: View {
             }
         }
         .clipShape(.rect(cornerRadius: 6))
+    }
+}
+
+struct ScoreBadge: View {
+    let score: Int
+
+    var body: some View {
+        Text("\(score)점").font(.caption2.weight(.bold)).foregroundStyle(.white)
+            .padding(.horizontal, 5).padding(.vertical, 1)
+            .background(color, in: .rect(cornerRadius: 4))
+    }
+
+    private var color: Color { score >= 90 ? .green : score >= 60 ? .blue : .gray }
+}
+
+/// 👍👎 버튼. 기록은 평가셋과 채점 프롬프트 예시로 쓰인다
+struct FeedbackButtons: View {
+    @EnvironmentObject var model: AppModel
+    let listing: Listing
+
+    var body: some View {
+        HStack(spacing: 2) {
+            button("hand.thumbsup", 1, .green)
+            button("hand.thumbsdown", -1, .red)
+        }
+    }
+
+    private func button(_ icon: String, _ value: Int, _ color: Color) -> some View {
+        let on = listing.feedback == value
+        return Button {
+            model.toggleFeedback(listing, value)
+        } label: {
+            Image(systemName: on ? icon + ".fill" : icon).foregroundStyle(on ? color : .secondary)
+        }
+        .buttonStyle(.borderless)
+        .help(value > 0 ? "좋아요 (다시 누르면 취소)" : "별로예요 (다시 누르면 취소)")
     }
 }

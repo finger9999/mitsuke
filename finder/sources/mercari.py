@@ -165,12 +165,8 @@ def fetch_categories() -> dict[str, list]:
     return {c["id"]: [c["name"], c["parentId"]] for c in resp.json()["categories"]}
 
 
-def fetch_category_chain(item_id: str) -> list[tuple[int, str, int]]:
-    """매물 상세에서 카테고리 경로를 읽는다 → [(id, 이름, 부모 id), ...] (위 → 아래).
-
-    카테고리 목록 API에는 새 다단계 카테고리(예: 1426 半袖)가 빠져 있어서,
-    모르는 카테고리가 나오면 그 카테고리의 매물 하나로 경로를 알아낸다.
-    """
+def fetch_item(item_id: str) -> dict:
+    """매물 상세 (설명, 카테고리 경로 등)."""
     headers = {
         "DPoP": _DPoP().token(ITEM_DETAIL_URL, "GET"),
         "X-Platform": "web",
@@ -179,7 +175,21 @@ def fetch_category_chain(item_id: str) -> list[tuple[int, str, int]]:
     }
     resp = httpx.get(ITEM_DETAIL_URL, params={"id": item_id.removeprefix("mercari:")}, headers=headers, timeout=20)
     resp.raise_for_status()
-    data = resp.json()["data"]
+    return resp.json()["data"]
+
+
+def fetch_description(item_id: str) -> str:
+    """판매자가 쓴 설명. 소재(ウール 등)가 제목에 없고 설명에만 있는 경우가 많아 채점 때 같이 본다."""
+    return fetch_item(item_id).get("description", "")
+
+
+def fetch_category_chain(item_id: str) -> list[tuple[int, str, int]]:
+    """매물 상세에서 카테고리 경로를 읽는다 → [(id, 이름, 부모 id), ...] (위 → 아래).
+
+    카테고리 목록 API에는 새 다단계 카테고리(예: 1426 半袖)가 빠져 있어서,
+    모르는 카테고리가 나오면 그 카테고리의 매물 하나로 경로를 알아낸다.
+    """
+    data = fetch_item(item_id)
     nodes = [(int(c["id"]), c["name"]) for c in data.get("parent_categories_ntiers", [])]
     leaf = data["item_category_ntiers"]
     nodes.append((int(leaf["id"]), leaf["name"]))

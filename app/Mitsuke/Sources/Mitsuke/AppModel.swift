@@ -9,6 +9,7 @@ final class AppModel: ObservableObject {
     @Published var searches: [Search] = []
     @Published var settings = GlobalSettings()
     @Published var lastRun: RunInfo?
+    @Published var monthCostUSD = 0.0
     @Published var error: String?
     @Published var includeFiltered = false { didSet { reload() } }
     @Published var isRunning = false
@@ -56,6 +57,7 @@ final class AppModel: ObservableObject {
             searches = try db.searches()
             settings = try db.settings()
             lastRun = try db.lastRun()
+            monthCostUSD = try db.monthCostUSD()
             error = nil
         } catch {
             self.error = error.localizedDescription
@@ -87,6 +89,12 @@ final class AppModel: ObservableObject {
     func updateSearch(_ s: Search) { write { try $0.updateSearch(s) } }
     func deleteSearch(_ s: Search) { write { try $0.deleteSearch(id: s.id) } }
     func saveSettings(_ g: GlobalSettings) { write { try $0.saveSettings(g) } }
+
+    /// 같은 버튼을 다시 누르면 피드백을 지운다
+    func toggleFeedback(_ listing: Listing, _ value: Int) {
+        let new = listing.feedback == value ? nil : value
+        write { try $0.setFeedback(listingID: listing.id, value: new) }
+    }
 
     // MARK: - 지금 확인
 

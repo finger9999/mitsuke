@@ -3,6 +3,7 @@
   python main.py run [--no-notify]   파이프라인 한 번 실행 (launchd가 1시간마다 부름)
   python main.py recent [-n 20] [--all]   최근 매물 보기
   python main.py update-categories   메루카리 카테고리 스냅샷 새로 받기
+  python main.py like|dislike|unrate <매물 ID>   피드백 기록 (m123... 또는 mercari:m123...)
 """
 
 import argparse
@@ -13,7 +14,7 @@ from pathlib import Path
 
 import yaml
 
-from finder import pipeline
+from finder import pipeline, scorer
 from finder.sources import categories, mercari
 from finder.store import Store
 
@@ -45,15 +46,41 @@ def cmd_run(args):
         # 검색어·예산은 DB(맥 앱에서 편집), 요청 간격 같은 동작 설정은 config.yaml
         config = options | store.search_config()
         run_id = store.start_run()
-        stats = pipeline.run(config, store, notify=not args.no_notify)
-        store.finish_run(run_id, stats.fetched, stats.new, stats.notified, stats.errors)
+        stats = pipeline.run(config, store, notify=not args.no_notify, scorer=make_scorer(store))
+        store.finish_run(run_id, stats.fetched, stats.new, stats.notified, stats.errors, stats.scored, stats.cost_usd)
     finally:
         store.close()
     logging.info(
-        "완료: 가져옴 %d, 신규 %d, 기준점 %d, 탈락 %d, 알림 %d, 오류 %d",
-        stats.fetched, stats.new, stats.seeded, stats.filtered, stats.notified, len(stats.errors),
+        "완료: 가져옴 %d, 신규 %d, 기준점 %d, 탈락 %d, 채점 %d ($%.4f), 알림 %d, 오류 %d",
+        stats.fetched, stats.new, stats.seeded, stats.filtered, stats.scored, stats.cost_usd, stats.notified,
+        len(stats.errors),
     )
     return 1 if stats.errors and stats.fetched == 0 else 0
+
+
+def make_scorer(store: Store):
+    """API 키와 취향 기준이 둘 다 있을 때만 채점한다. 없으면 규칙 통과 매물을 모두 알림 (0단계 방식)."""
+    taste = store.settings()["taste"]
+    key = scorer.api_key()
+    if not key:
+        logging.warning("API 키가 없어 채점 없이 실행 (키체인 %s 또는 ANTHROPIC_API_KEY)", scorer.KEYCHAIN_SERVICE)
+        return None
+    if not taste.strip():
+        logging.warning("취향 기준이 비어 있어 채점 없이 실행 (맥 앱 설정에서 입력)")
+        return None
+    return scorer.Scorer(taste, key, store.feedback_examples())
+
+
+def cmd_feedback(args):
+    value = {"like": 1, "dislike": -1, "unrate": None}[args.cmd]
+    listing_id = args.id if args.id.startswith("mercari:") else f"mercari:{args.id}"
+    store = Store(DB_PATH)
+    try:
+        ok = store.set_feedback(listing_id, value)
+    finally:
+        store.close()
+    print("기록했습니다." if ok else f"DB에 없는 매물: {listing_id}")
+    return 0 if ok else 1
 
 
 def cmd_recent(args):
@@ -67,8 +94,12 @@ def cmd_recent(args):
         return 0
     for r in rows:
         seen = datetime.fromtimestamp(r["first_seen"]).strftime("%m-%d %H:%M")
-        line = f"{seen}  [{r['status']:<8}] ¥{r['price_jpy']:>7,}  {r['title'][:50]}"
+        score = f"{r['score']:>3}점" if r["score"] is not None else "  - "
+        mark = {1: "👍", -1: "👎"}.get(r["feedback"], "  ")
+        line = f"{seen}  [{r['status']:<8}] {score} {mark} ¥{r['price_jpy']:>7,}  {r['title'][:50]}"
         print(line)
+        if r["score_reason"]:
+            print(f"{'':16}{r['score_reason']}")
         if r["category_id"]:
             print(f"{'':16}{categories.path(r['category_id'])}")
         if r["filter_reason"]:
@@ -100,6 +131,11 @@ def main(argv=None):
 
     p_cats = sub.add_parser("update-categories", help="메루카리 카테고리 스냅샷 새로 받기")
     p_cats.set_defaults(func=cmd_update_categories)
+
+    for name, help_ in (("like", "👍 기록"), ("dislike", "👎 기록"), ("unrate", "피드백 지우기")):
+        p = sub.add_parser(name, help=help_)
+        p.add_argument("id", help="매물 ID (m123... 또는 mercari:m123...)")
+        p.set_defaults(func=cmd_feedback)
 
     args = parser.parse_args(argv)
     setup_logging()
