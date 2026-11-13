@@ -37,10 +37,16 @@ def load_config(path: Path) -> dict:
 
 
 def cmd_run(args):
-    config = load_config(args.config)
+    options = load_config(args.config)
     store = Store(DB_PATH)
     try:
+        if store.import_config(options):
+            logging.info("config.yaml의 검색어·설정을 DB로 옮겼습니다. 이제 맥 앱에서 편집하세요")
+        # 검색어·예산은 DB(맥 앱에서 편집), 요청 간격 같은 동작 설정은 config.yaml
+        config = options | store.search_config()
+        run_id = store.start_run()
         stats = pipeline.run(config, store, notify=not args.no_notify)
+        store.finish_run(run_id, stats.fetched, stats.new, stats.notified, stats.errors)
     finally:
         store.close()
     logging.info(

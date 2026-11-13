@@ -1,8 +1,8 @@
 """맥 알림. 클릭하면 Buyee 구매 페이지가 열린다.
 
-알림은 직접 만든 도우미 앱(app/MitsukeNotifier, scripts/build_notifier.sh로 빌드)으로 보낸다.
-terminal-notifier는 macOS 15에서 알림이 조용히 버려지는 경우가 있어 쓰지 않는다.
-도우미 앱이 없으면 osascript로 알림만 띄운다 (클릭 동작 없음).
+알림은 맥 앱(app/Mitsuke, scripts/build_app.sh로 빌드)을 `--notify` 모드로 불러서 보낸다.
+terminal-notifier는 macOS 15에서 알림이 조용히 버려지는 경우가 있어 쓰지 않는다 (docs/devlog/002).
+앱이 없으면 osascript로 알림만 띄운다 (클릭 동작 없음).
 """
 
 import logging
@@ -13,10 +13,7 @@ from finder.models import Listing
 
 log = logging.getLogger(__name__)
 
-NOTIFIER_BIN = (
-    Path(__file__).resolve().parent.parent
-    / "app/MitsukeNotifier/build/MitsukeNotifier.app/Contents/MacOS/MitsukeNotifier"
-)
+NOTIFIER_BIN = Path(__file__).resolve().parent.parent / "app/Mitsuke/build/Mitsuke.app/Contents/MacOS/Mitsuke"
 
 
 def notify(listing: Listing, buyee_url: str) -> bool:
@@ -25,12 +22,12 @@ def notify(listing: Listing, buyee_url: str) -> bool:
     message = listing.title
 
     if NOTIFIER_BIN.exists():
-        cmd = [str(NOTIFIER_BIN), "--title", title, "--subtitle", subtitle, "--message", message,
+        cmd = [str(NOTIFIER_BIN), "--notify", "--title", title, "--subtitle", subtitle, "--message", message,
                "--open", buyee_url, "--group", listing.id]
         if listing.image_url:
             cmd += ["--image", listing.image_url]
     else:
-        log.warning("알림 도우미 앱이 없어 osascript로 보냄 (scripts/build_notifier.sh로 빌드)")
+        log.warning("맥 앱이 없어 osascript로 보냄 (scripts/build_app.sh로 빌드)")
         script = f"display notification {_q(message)} with title {_q(title)} subtitle {_q(subtitle)}"
         cmd = ["osascript", "-e", script]
 

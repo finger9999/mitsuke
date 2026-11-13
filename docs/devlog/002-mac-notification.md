@@ -1,5 +1,7 @@
 # 002. 맥 알림이 안 뜬다
 
+> 이후 이 알림 앱은 맥 앱(`app/Mitsuke`)에 합쳐졌다 → [004](004-mac-app.md)
+
 2026-11-14 · 관련 파일: [app/MitsukeNotifier/main.swift](../../app/MitsukeNotifier/main.swift), [finder/notifier.py](../../finder/notifier.py), [scripts/build_notifier.sh](../../scripts/build_notifier.sh)
 
 ## 목표

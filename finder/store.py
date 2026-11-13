@@ -1,5 +1,9 @@
-"""SQLite 읽기·쓰기. Python 파이프라인과 메뉴바 앱(Swift)의 유일한 연결고리."""
+"""SQLite 읽기·쓰기. Python 파이프라인과 맥 앱(Swift)의 유일한 연결고리.
 
+검색어와 예산 설정도 여기 있다. 맥 앱이 쓰고 파이프라인이 읽는다.
+"""
+
+import json
 import sqlite3
 import time
 from pathlib import Path
@@ -39,6 +43,35 @@ CREATE TABLE IF NOT EXISTS embeddings (
     PRIMARY KEY (listing_id, model)
 );
 
+-- 검색어. 맥 앱 설정 화면에서 편집한다
+CREATE TABLE IF NOT EXISTS searches (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    keyword          TEXT NOT NULL UNIQUE,
+    enabled          INTEGER NOT NULL DEFAULT 1,
+    price_max        INTEGER,                 -- NULL이면 전체 기본 예산
+    outer_price_max  INTEGER,                 -- NULL이면 전체 아우터 예산
+    exclude_keywords TEXT NOT NULL DEFAULT '[]',  -- JSON 배열
+    sort_order       INTEGER NOT NULL DEFAULT 0,
+    created_at       INTEGER NOT NULL
+);
+
+-- 전체 설정. 값은 JSON (price_max, outer_price_max, exclude_keywords, exclude_categories)
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+
+-- 실행 기록. 맥 앱이 "마지막 확인" 시각을 보여준다
+CREATE TABLE IF NOT EXISTS runs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_at  INTEGER NOT NULL,
+    finished_at INTEGER,
+    fetched     INTEGER,
+    new         INTEGER,
+    notified    INTEGER,
+    errors      TEXT
+);
+
 CREATE TABLE IF NOT EXISTS purchases (
     listing_id        TEXT PRIMARY KEY REFERENCES listings(id),
     est_shipping_krw  INTEGER,
@@ -46,6 +79,17 @@ CREATE TABLE IF NOT EXISTS purchases (
     purchased_at      INTEGER
 );
 """
+
+
+# 메루카리 아우터 카테고리. "아우터 예산"은 이 둘과 그 아래 전부에 적용된다
+OUTER_CATEGORIES = (12, 31)  # レディース / メンズ > ジャケット/アウター
+
+DEFAULT_SETTINGS = {
+    "price_max": None,
+    "outer_price_max": None,
+    "exclude_keywords": [],
+    "exclude_categories": [],
+}
 
 
 class Store:
@@ -119,3 +163,91 @@ class Store:
         return self.conn.execute(
             f"SELECT * FROM listings {where} ORDER BY first_seen DESC, rowid DESC LIMIT ?", (limit,)
         ).fetchall()
+
+    # ── 검색어·설정 ──────────────────────────────────────────
+
+    def settings(self) -> dict:
+        result = dict(DEFAULT_SETTINGS)
+        for row in self.conn.execute("SELECT key, value FROM settings"):
+            result[row["key"]] = json.loads(row["value"])
+        return result
+
+    def set_setting(self, key: str, value):
+        self.conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, json.dumps(value, ensure_ascii=False)),
+        )
+        self.conn.commit()
+
+    def searches(self, enabled_only: bool = True) -> list[dict]:
+        where = "WHERE enabled = 1" if enabled_only else ""
+        rows = self.conn.execute(f"SELECT * FROM searches {where} ORDER BY sort_order, id").fetchall()
+        return [dict(r) | {"exclude_keywords": json.loads(r["exclude_keywords"])} for r in rows]
+
+    def add_search(self, keyword: str, price_max: int | None = None, outer_price_max: int | None = None,
+                   exclude_keywords: list[str] | None = None, enabled: bool = True):
+        next_order = self.conn.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM searches").fetchone()[0]
+        self.conn.execute(
+            """INSERT INTO searches (keyword, enabled, price_max, outer_price_max, exclude_keywords, sort_order, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (keyword, int(enabled), price_max, outer_price_max,
+             json.dumps(exclude_keywords or [], ensure_ascii=False), next_order, int(time.time())),
+        )
+        self.conn.commit()
+
+    def search_config(self) -> dict:
+        """DB 설정 → pipeline.run이 받는 {"searches": [...], "defaults": {...}} 모양."""
+        s = self.settings()
+        defaults = {
+            "price_max": s["price_max"],
+            "category_price_max": _outer(s["outer_price_max"]),
+            "exclude_keywords": s["exclude_keywords"],
+            "exclude_categories": s["exclude_categories"],
+        }
+        searches = []
+        for row in self.searches():
+            cfg = {"keyword": row["keyword"], "exclude_keywords": row["exclude_keywords"]}
+            if row["price_max"] is not None:
+                cfg["price_max"] = row["price_max"]
+            if row["outer_price_max"] is not None:
+                cfg["category_price_max"] = _outer(row["outer_price_max"])
+            searches.append(cfg)
+        return {"searches": searches, "defaults": defaults}
+
+    def import_config(self, config: dict) -> bool:
+        """config.yaml에 있던 검색어·설정을 DB로 옮긴다. DB에 검색어가 이미 있으면 아무것도 안 한다."""
+        if self.conn.execute("SELECT 1 FROM searches LIMIT 1").fetchone() or not config.get("searches"):
+            return False
+        d = config.get("defaults", {})
+        outer = {int(k): v for k, v in (d.get("category_price_max") or {}).items()}
+        self.set_setting("price_max", d.get("price_max"))
+        self.set_setting("outer_price_max", next((outer[c] for c in OUTER_CATEGORIES if c in outer), None))
+        self.set_setting("exclude_keywords", d.get("exclude_keywords", []))
+        self.set_setting("exclude_categories", d.get("exclude_categories", []))
+        for sc in config["searches"]:
+            sc_outer = {int(k): v for k, v in (sc.get("category_price_max") or {}).items()}
+            self.add_search(
+                sc["keyword"],
+                price_max=sc.get("price_max"),
+                outer_price_max=next((sc_outer[c] for c in OUTER_CATEGORIES if c in sc_outer), None),
+                exclude_keywords=sc.get("exclude_keywords", []),
+            )
+        return True
+
+    # ── 실행 기록 ────────────────────────────────────────────
+
+    def start_run(self) -> int:
+        cur = self.conn.execute("INSERT INTO runs (started_at) VALUES (?)", (int(time.time()),))
+        self.conn.commit()
+        return cur.lastrowid
+
+    def finish_run(self, run_id: int, fetched: int, new: int, notified: int, errors: list[str]):
+        self.conn.execute(
+            "UPDATE runs SET finished_at = ?, fetched = ?, new = ?, notified = ?, errors = ? WHERE id = ?",
+            (int(time.time()), fetched, new, notified, json.dumps(errors, ensure_ascii=False), run_id),
+        )
+        self.conn.commit()
+
+
+def _outer(price: int | None) -> dict[int, int]:
+    return {c: price for c in OUTER_CATEGORIES} if price is not None else {}

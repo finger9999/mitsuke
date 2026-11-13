@@ -9,3 +9,6 @@ logs/*
 !logs/.gitkeep
 app/MitsukeNotifier/build/
 data/*.json
+app/Mitsuke/.build/
+app/Mitsuke/build/
+app/Mitsuke/.swiftpm/
