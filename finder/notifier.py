@@ -1,17 +1,22 @@
 """맥 알림. 클릭하면 Buyee 구매 페이지가 열린다.
 
-클릭 동작은 terminal-notifier(brew install terminal-notifier)가 있어야 된다.
-없으면 osascript로 알림만 띄운다.
+알림은 직접 만든 도우미 앱(app/MitsukeNotifier, scripts/build_notifier.sh로 빌드)으로 보낸다.
+terminal-notifier는 macOS 15에서 알림이 조용히 버려지는 경우가 있어 쓰지 않는다.
+도우미 앱이 없으면 osascript로 알림만 띄운다 (클릭 동작 없음).
 """
 
 import logging
-import os
-import shutil
 import subprocess
+from pathlib import Path
 
 from finder.models import Listing
 
 log = logging.getLogger(__name__)
+
+NOTIFIER_BIN = (
+    Path(__file__).resolve().parent.parent
+    / "app/MitsukeNotifier/build/MitsukeNotifier.app/Contents/MacOS/MitsukeNotifier"
+)
 
 
 def notify(listing: Listing, buyee_url: str) -> bool:
@@ -19,33 +24,25 @@ def notify(listing: Listing, buyee_url: str) -> bool:
     subtitle = f"¥{listing.price_jpy:,} · {listing.search}"
     message = listing.title
 
-    tn = _terminal_notifier()
-    if tn:
-        cmd = [tn, "-title", title, "-subtitle", subtitle, "-message", message,
-               "-open", buyee_url, "-group", listing.id, "-sound", "default"]
+    if NOTIFIER_BIN.exists():
+        cmd = [str(NOTIFIER_BIN), "--title", title, "--subtitle", subtitle, "--message", message,
+               "--open", buyee_url, "--group", listing.id]
         if listing.image_url:
-            cmd += ["-contentImage", listing.image_url]
+            cmd += ["--image", listing.image_url]
     else:
+        log.warning("알림 도우미 앱이 없어 osascript로 보냄 (scripts/build_notifier.sh로 빌드)")
         script = f"display notification {_q(message)} with title {_q(title)} subtitle {_q(subtitle)}"
         cmd = ["osascript", "-e", script]
 
     try:
-        subprocess.run(cmd, check=True, capture_output=True, timeout=15)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=30)
         return True
+    except subprocess.CalledProcessError as e:
+        log.error("알림 실패 %s: %s", listing.id, (e.stderr or "").strip() or e)
+        return False
     except (subprocess.SubprocessError, OSError) as e:
         log.error("알림 실패 %s: %s", listing.id, e)
         return False
-
-
-def _terminal_notifier() -> str | None:
-    # launchd는 PATH가 짧아서 brew 경로를 따로 찾아본다
-    found = shutil.which("terminal-notifier")
-    if found:
-        return found
-    for path in ("/opt/homebrew/bin/terminal-notifier", "/usr/local/bin/terminal-notifier"):
-        if os.path.exists(path):
-            return path
-    return None
 
 
 def _q(text: str) -> str:

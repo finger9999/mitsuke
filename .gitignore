@@ -7,3 +7,4 @@ data/*.db
 data/*.db-*
 logs/*
 !logs/.gitkeep
+app/MitsukeNotifier/build/
