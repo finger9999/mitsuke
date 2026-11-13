@@ -78,6 +78,7 @@ class Evaluator:
         # 채점할 카테고리. 비어 있으면 규칙 통과 매물 전부, 있으면 그 카테고리(와 그 아래)만 채점한다
         self.score_categories = {int(c) for c in config.get("score_categories") or []}
         self.budget_left = config.get("llm_monthly_budget_usd", 1.0) - store.month_cost_usd()
+        self.halted: str | None = None  # 결제·권한 오류가 나면 이번 실행에서는 채점을 멈춘다
 
     def evaluate(self, listing: Listing, rules: filters.Rules, notify: bool):
         stats, store = self.stats, self.store
@@ -99,15 +100,23 @@ class Evaluator:
             # 지금 찾는 종류가 아니면 LLM을 부르지 않고 목록에만 올린다
             store.add(listing, status="passed", buyee_url=url)
             return
+        if self.halted:
+            store.add(listing, status="passed", buyee_url=url, score_reason=f"채점 중단: {self.halted}")
+            return
         if stats.scored >= self.llm_limit or stats.cost_usd >= self.budget_left:
             store.add(listing, status="passed", buyee_url=url, score_reason="LLM 호출·비용 상한을 넘어 채점하지 않음")
             return
         try:
             result = self.scorer.score(listing, self.describe_fn(listing.id))
         except Exception as e:  # 채점 실패도 목록에는 올려서 놓치지 않는다
+            short = _short_error(e)
             log.warning("채점 실패 %s: %s", listing.id, e)
-            stats.errors.append(f"채점 {listing.id}: {e}")
-            store.add(listing, status="passed", buyee_url=url, score_reason=f"채점 실패: {e}")
+            stats.errors.append(f"채점 {listing.id}: {short}")
+            store.add(listing, status="passed", buyee_url=url, score_reason=f"채점 실패: {short}")
+            if getattr(e, "code", None) in (401, 402, 403, 429):
+                # 키·결제·한도 문제는 다음 매물에서도 똑같이 실패한다. 헛호출하지 않고 멈춘다
+                self.halted = short
+                log.error("채점 중단 (이번 실행): %s", short)
             return
         stats.scored += 1
         stats.cost_usd += result.cost_usd
@@ -116,6 +125,14 @@ class Evaluator:
         if notify and result.score >= self.notify_score and notifier.notify(listing, url, result.score, result.reason):
             store.set_status(listing.id, "notified")
             stats.notified += 1
+
+
+def _short_error(e: Exception) -> str:
+    code = getattr(e, "code", None)
+    known = {401: "API 키가 잘못됨", 402: "API 선불 크레딧 소진", 403: "API 권한 없음", 429: "API 사용 한도 초과"}
+    if code in known:
+        return f"{known[code]} ({code})"
+    return str(e)[:120]
 
 
 def run(config: dict, store: Store, notify: bool = True, search_fn=mercari.search, sleep=time.sleep,

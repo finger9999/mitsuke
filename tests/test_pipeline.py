@@ -139,3 +139,23 @@ def test_scorer_failure_still_lists(monkeypatch):
     stats, sent = scored_run(store, [L(2), L(1)], Broken(), monkeypatch)
     row = store.recent(1)[0]
     assert row["status"] == "passed" and "채점 실패" in row["score_reason"] and sent == []
+
+
+def test_billing_error_halts_scoring(monkeypatch):
+    store = Store(":memory:")
+    scored_run(store, [L(1)], FakeScorer({}), monkeypatch)
+
+    class NoCredit(Exception):
+        code = 402
+
+    class Broke:
+        calls = 0
+
+        def score(self, listing, description=""):
+            Broke.calls += 1
+            raise NoCredit("credits depleted")
+
+    scored_run(store, [L(4), L(3), L(2), L(1)], Broke(), monkeypatch)
+    assert Broke.calls == 1  # 첫 실패 뒤로는 호출하지 않음
+    reasons = {r["id"]: r["score_reason"] for r in store.recent(10)}
+    assert "선불 크레딧" in reasons["mercari:m2"] and "채점 중단" in reasons["mercari:m4"]
