@@ -9,8 +9,10 @@
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-brew install terminal-notifier   # 알림 클릭 시 Buyee 페이지 열기
+./scripts/build_notifier.sh       # 알림 도우미 앱 빌드 (Xcode 필요)
 ```
+
+처음 알림을 보낼 때 macOS가 "미츠케" 알림 허용 여부를 묻는다. 허용해야 알림이 뜬다.
 
 ## 사용
 
