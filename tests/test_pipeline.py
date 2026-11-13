@@ -17,10 +17,12 @@ def run(store, results, monkeypatch):
     return stats, sent
 
 
-def test_first_run_only_seeds(monkeypatch):
+def test_first_run_evaluates_without_notifying(monkeypatch):
     store = Store(":memory:")
-    stats, sent = run(store, [L(1), L(2)], monkeypatch)
+    stats, sent = run(store, [L(1), L(2, price=50000)], monkeypatch)
     assert stats.seeded == 2 and sent == []
+    rows = {r["id"]: r["status"] for r in store.recent(10, include_filtered=True)}
+    assert rows == {"mercari:m1": "passed", "mercari:m2": "filtered"}
 
 
 def test_second_run_notifies_new_passing(monkeypatch):
@@ -46,6 +48,23 @@ def test_search_error_does_not_stop_run(monkeypatch):
 
     stats = pipeline.run(config, store, notify=False, search_fn=search_fn, sleep=lambda s: None)
     assert len(stats.errors) == 1 and stats.seeded == 1
+
+
+def test_reevaluate_seeded_keeps_first_seen_and_feedback(monkeypatch):
+    store = Store(":memory:")
+    store.add(L(1), status="seeded")
+    store.add(L(2, price=50000), status="seeded")
+    store.conn.execute("UPDATE listings SET first_seen = 100")
+    store.set_feedback("mercari:m1", 1)
+    scorer = FakeScorer({"mercari:m1": 95})
+    sent = []
+    monkeypatch.setattr(notifier, "notify", lambda *a: sent.append(a) or True)
+    stats = pipeline.reevaluate(CONFIG, store, scorer=scorer, describe_fn=lambda i: "", sleep=lambda s: None)
+    rows = {r["id"]: r for r in store.recent(10, include_filtered=True)}
+    assert rows["mercari:m1"]["status"] == "scored" and rows["mercari:m1"]["score"] == 95
+    assert rows["mercari:m1"]["first_seen"] == 100 and rows["mercari:m1"]["feedback"] == 1
+    assert rows["mercari:m2"]["status"] == "filtered"
+    assert sent == [] and stats.scored == 1
 
 
 def test_rules_for_merges_defaults():

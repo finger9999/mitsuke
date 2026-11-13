@@ -141,11 +141,17 @@ class Store:
     def add(self, listing: Listing, status: str, filter_reason: str | None = None, buyee_url: str | None = None,
             score: int | None = None, score_reason: str | None = None, score_model: str | None = None,
             score_cost_usd: float | None = None):
+        # 이미 있는 매물(다시 평가)이면 평가 결과만 바꾸고 first_seen·피드백은 그대로 둔다
         self.conn.execute(
-            """INSERT OR IGNORE INTO listings
+            """INSERT INTO listings
                (id, search, title, price_jpy, image_url, url, created_at, category_id,
                 first_seen, status, filter_reason, buyee_url, score, score_reason, score_model, score_cost_usd)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET
+                 category_id = excluded.category_id, status = excluded.status,
+                 filter_reason = excluded.filter_reason, buyee_url = excluded.buyee_url,
+                 score = excluded.score, score_reason = excluded.score_reason,
+                 score_model = excluded.score_model, score_cost_usd = excluded.score_cost_usd""",
             (
                 listing.id,
                 listing.search,
@@ -186,6 +192,17 @@ class Store:
                 (sign, half),
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def listings_to_reevaluate(self, include_unscored: bool) -> list[Listing]:
+        where = "status = 'seeded'"
+        if include_unscored:
+            where += " OR (status = 'passed' AND score IS NULL)"
+        rows = self.conn.execute(f"SELECT * FROM listings WHERE {where} ORDER BY first_seen, rowid").fetchall()
+        return [
+            Listing(r["id"], r["search"], r["title"], r["price_jpy"], r["image_url"], r["url"],
+                    r["created_at"], r["category_id"])
+            for r in rows
+        ]
 
     def set_status(self, listing_id: str, status: str):
         self.conn.execute("UPDATE listings SET status = ? WHERE id = ?", (status, listing_id))

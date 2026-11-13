@@ -3,6 +3,7 @@
   python main.py run [--no-notify]   파이프라인 한 번 실행 (launchd가 1시간마다 부름)
   python main.py recent [-n 20] [--all]   최근 매물 보기
   python main.py update-categories   메루카리 카테고리 스냅샷 새로 받기
+  python main.py reevaluate   평가 없이 저장된 기준점·점수 없는 매물 다시 평가 (알림 없음)
   python main.py like|dislike|unrate <매물 ID>   피드백 기록 (m123... 또는 mercari:m123...)
 """
 
@@ -71,6 +72,19 @@ def make_scorer(store: Store):
     return scorer.Scorer(taste, key, store.feedback_examples())
 
 
+def cmd_reevaluate(args):
+    options = load_config(args.config)
+    store = Store(DB_PATH)
+    try:
+        config = options | store.search_config()
+        stats = pipeline.reevaluate(config, store, scorer=make_scorer(store))
+    finally:
+        store.close()
+    print(f"다시 평가: {stats.new}개 → 탈락 {stats.filtered}, 채점 {stats.scored} (${stats.cost_usd:.4f}), "
+          f"나머지 통과 {stats.new - stats.filtered - stats.scored}")
+    return 0
+
+
 def cmd_feedback(args):
     value = {"like": 1, "dislike": -1, "unrate": None}[args.cmd]
     listing_id = args.id if args.id.startswith("mercari:") else f"mercari:{args.id}"
@@ -131,6 +145,9 @@ def main(argv=None):
 
     p_cats = sub.add_parser("update-categories", help="메루카리 카테고리 스냅샷 새로 받기")
     p_cats.set_defaults(func=cmd_update_categories)
+
+    p_re = sub.add_parser("reevaluate", help="기준점·점수 없는 매물 다시 평가 (알림 없음)")
+    p_re.set_defaults(func=cmd_reevaluate)
 
     for name, help_ in (("like", "👍 기록"), ("dislike", "👎 기록"), ("unrate", "피드백 지우기")):
         p = sub.add_parser(name, help=help_)
