@@ -46,3 +46,14 @@ def test_search_error_does_not_stop_run(monkeypatch):
 
     stats = pipeline.run(config, store, notify=False, search_fn=search_fn, sleep=lambda s: None)
     assert len(stats.errors) == 1 and stats.seeded == 1
+
+
+def test_rules_for_merges_defaults():
+    rules = pipeline.rules_for(
+        {"keyword": "k", "exclude_keywords": ["b"], "category_price_max": {"31": 50000}},
+        {"price_max": 30000, "exclude_keywords": ["a"], "category_price_max": {12: 70000}, "exclude_categories": [186]},
+    )
+    assert rules.price_max == 30000
+    assert rules.exclude_keywords == ["a", "b"]
+    assert rules.category_price_max == {12: 70000, 31: 50000}
+    assert rules.exclude_categories == [186]

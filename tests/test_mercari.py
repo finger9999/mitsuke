@@ -11,11 +11,12 @@ def load():
 
 
 def test_parse_items_basic_fields():
-    listings = mercari.parse_items(load(), "ポーター タンカー")
+    listings = mercari.parse_items(load(), "ツモリチサト")
     assert listings, "픽스처에서 매물을 하나도 못 읽음"
     for l in listings:
         assert l.id.startswith("mercari:m")
-        assert l.search == "ポーター タンカー"
+        assert l.search == "ツモリチサト"
+        assert l.category_id
         assert l.title
         assert l.price_jpy > 0
         assert l.url == f"https://jp.mercari.com/item/{l.id.removeprefix('mercari:')}"
@@ -24,6 +25,7 @@ def test_parse_items_basic_fields():
 
 def test_parse_items_skips_shops():
     data = load()
+    data["items"].append({"id": "2JZWMQEReMQqWsmEKeUhog", "name": "shop", "price": "100", "itemType": "ITEM_TYPE_BEYOND"})
     shops = [i for i in data["items"] if i["itemType"] != "ITEM_TYPE_MERCARI"]
     listings = mercari.parse_items(data, "x")
     assert len(listings) == len(data["items"]) - len(shops)

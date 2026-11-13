@@ -2,6 +2,7 @@
 
   python main.py run [--no-notify]   파이프라인 한 번 실행 (launchd가 1시간마다 부름)
   python main.py recent [-n 20] [--all]   최근 매물 보기
+  python main.py update-categories   메루카리 카테고리 스냅샷 새로 받기
 """
 
 import argparse
@@ -13,6 +14,7 @@ from pathlib import Path
 import yaml
 
 from finder import pipeline
+from finder.sources import categories, mercari
 from finder.store import Store
 
 ROOT = Path(__file__).resolve().parent
@@ -61,9 +63,18 @@ def cmd_recent(args):
         seen = datetime.fromtimestamp(r["first_seen"]).strftime("%m-%d %H:%M")
         line = f"{seen}  [{r['status']:<8}] ¥{r['price_jpy']:>7,}  {r['title'][:50]}"
         print(line)
+        if r["category_id"]:
+            print(f"{'':16}{categories.path(r['category_id'])}")
         if r["filter_reason"]:
             print(f"{'':16}탈락: {r['filter_reason']}")
         print(f"{'':16}{r['buyee_url'] or r['url']}")
+    return 0
+
+
+def cmd_update_categories(args):
+    tree = mercari.fetch_categories()
+    categories.save_snapshot(tree)
+    print(f"카테고리 {len(tree)}개 저장: {categories.SNAPSHOT}")
     return 0
 
 
@@ -80,6 +91,9 @@ def main(argv=None):
     p_recent.add_argument("-n", type=int, default=20)
     p_recent.add_argument("--all", action="store_true", help="기준점·탈락 매물도 보기")
     p_recent.set_defaults(func=cmd_recent)
+
+    p_cats = sub.add_parser("update-categories", help="메루카리 카테고리 스냅샷 새로 받기")
+    p_cats.set_defaults(func=cmd_update_categories)
 
     args = parser.parse_args(argv)
     setup_logging()

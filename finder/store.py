@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS listings (
     image_url      TEXT,
     url            TEXT NOT NULL,
     created_at     INTEGER,                   -- 판매자가 올린 시각
+    category_id    INTEGER,                   -- 메루카리 카테고리 (가장 아래 단계)
     first_seen     INTEGER NOT NULL,          -- 미츠케가 처음 본 시각
     status         TEXT NOT NULL,             -- seeded / filtered / passed / scored / notified
     filter_reason  TEXT,
@@ -57,6 +58,14 @@ class Store:
         # 메뉴바 앱이 읽는 동안에도 쓸 수 있게 WAL 모드
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self):
+        """예전 DB에 없는 컬럼을 추가한다."""
+        cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(listings)")}
+        if "category_id" not in cols:
+            self.conn.execute("ALTER TABLE listings ADD COLUMN category_id INTEGER")
+            self.conn.commit()
 
     def close(self):
         self.conn.close()
@@ -81,8 +90,9 @@ class Store:
     def add(self, listing: Listing, status: str, filter_reason: str | None = None, buyee_url: str | None = None):
         self.conn.execute(
             """INSERT OR IGNORE INTO listings
-               (id, search, title, price_jpy, image_url, url, created_at, first_seen, status, filter_reason, buyee_url)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, search, title, price_jpy, image_url, url, created_at, category_id,
+                first_seen, status, filter_reason, buyee_url)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 listing.id,
                 listing.search,
@@ -91,6 +101,7 @@ class Store:
                 listing.image_url,
                 listing.url,
                 listing.created_at,
+                listing.category_id,
                 int(time.time()),
                 status,
                 filter_reason,

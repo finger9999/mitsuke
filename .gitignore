@@ -8,3 +8,4 @@ data/*.db-*
 logs/*
 !logs/.gitkeep
 app/MitsukeNotifier/build/
+data/*.json
