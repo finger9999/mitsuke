@@ -84,6 +84,6 @@ Xcode 프로젝트 없이 `swiftc` 한 줄로 컴파일하고, 폴더를 직접 
 | terminal-notifier | 명령은 성공, 화면에 안 뜸 |
 | 알림 권한 켜기 | 여전히 안 뜸 |
 | 사용자 터미널에서 직접 실행 | 여전히 안 뜸 → 샌드박스 탓 아님 |
-| Swift + UserNotifications 앱 | **뜸**, 클릭하면 Buyee로 이동 |
+| Swift + UserNotifications 앱 | **뜸** (클릭해서 Buyee가 열리는지는 아직 확인 전) |
 
-이 알림 앱은 2단계 메뉴바 앱(SwiftUI)으로 합칠 수 있다. 같은 번들 ID를 쓰면 권한도 이어진다.
+이 알림 앱은 2단계 메뉴바 앱(SwiftUI)으로 합칠 수 있다. 같은 번들 ID를 쓰면 권한도 이어질 것으로 예상한다.
