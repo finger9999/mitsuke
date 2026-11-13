@@ -5,6 +5,12 @@ struct MitsukeApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
+        // 맨 앞에 둔 창이 실행할 때 열린다. Dock 아이콘을 눌러도 다시 열린다
+        Window("미츠케", id: "listings") {
+            ListingsView().environmentObject(model)
+        }
+        .defaultSize(width: 980, height: 720)
+
         MenuBarExtra {
             MenuBarView().environmentObject(model)
         } label: {
@@ -14,11 +20,6 @@ struct MitsukeApp: App {
         }
         .menuBarExtraStyle(.window)
 
-        Window("미츠케", id: "listings") {
-            ListingsView().environmentObject(model)
-        }
-        .defaultSize(width: 980, height: 720)
-
         Window("미츠케 설정", id: "settings") {
             SettingsView().environmentObject(model)
         }
@@ -27,7 +28,7 @@ struct MitsukeApp: App {
     }
 }
 
-/// 메뉴바 앱은 독 아이콘이 없어서, 창을 열 때 앞으로 끌어와야 보인다
+/// 메뉴바에서 창을 열 때 다른 앱 뒤에 숨지 않게 앞으로 끌어온다
 @MainActor
 func bringToFront() {
     NSApp.activate(ignoringOtherApps: true)

@@ -9,13 +9,15 @@
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-./scripts/build_app.sh --open        # 맥 앱 빌드 후 실행 (Xcode 필요)
+./scripts/build_app.sh --open        # 맥 앱 빌드 → ~/Applications 설치 → 실행 (Xcode 필요)
 ./scripts/install_launchd.sh         # 1시간마다 자동 실행 등록
 ```
 
 처음 알림을 보낼 때 macOS가 "미츠케" 알림 허용 여부를 묻는다. 허용해야 알림이 뜬다.
 
 ## 맥 앱
+
+Spotlight나 Launchpad에서 "미츠케"(Mitsuke)로 연다. 실행하면 매물 창이 열리고 Dock 아이콘이 생긴다.
 
 메뉴바의 **見** 아이콘을 누르면 최근 통과 매물이 뜬다. 새 매물이 있으면 아이콘 옆에 개수가 붙는다.
 

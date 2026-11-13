@@ -13,7 +13,7 @@ from finder.models import Listing
 
 log = logging.getLogger(__name__)
 
-NOTIFIER_BIN = Path(__file__).resolve().parent.parent / "app/Mitsuke/build/Mitsuke.app/Contents/MacOS/Mitsuke"
+NOTIFIER_BIN = Path.home() / "Applications/Mitsuke.app/Contents/MacOS/Mitsuke"
 
 
 def notify(listing: Listing, buyee_url: str) -> bool:
