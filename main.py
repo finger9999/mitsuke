@@ -47,7 +47,7 @@ def cmd_run(args):
         # 검색어·예산은 DB(맥 앱에서 편집), 요청 간격 같은 동작 설정은 config.yaml
         config = options | store.search_config()
         run_id = store.start_run()
-        stats = pipeline.run(config, store, notify=not args.no_notify, scorer=make_scorer(store))
+        stats = pipeline.run(config, store, notify=not args.no_notify, scorer=make_scorer(store, options))
         store.finish_run(run_id, stats.fetched, stats.new, stats.notified, stats.errors, stats.scored, stats.cost_usd)
     finally:
         store.close()
@@ -59,17 +59,17 @@ def cmd_run(args):
     return 1 if stats.errors and stats.fetched == 0 else 0
 
 
-def make_scorer(store: Store):
+def make_scorer(store: Store, options: dict):
     """API 키와 취향 기준이 둘 다 있을 때만 채점한다. 없으면 규칙 통과 매물을 모두 알림 (0단계 방식)."""
     taste = store.settings()["taste"]
     key = scorer.api_key()
     if not key:
-        logging.warning("API 키가 없어 채점 없이 실행 (키체인 %s 또는 ANTHROPIC_API_KEY)", scorer.KEYCHAIN_SERVICE)
+        logging.warning("API 키가 없어 채점 없이 실행 (키체인 %s 또는 GEMINI_API_KEY)", scorer.KEYCHAIN_SERVICE)
         return None
     if not taste.strip():
         logging.warning("취향 기준이 비어 있어 채점 없이 실행 (맥 앱 설정에서 입력)")
         return None
-    return scorer.Scorer(taste, key, store.feedback_examples())
+    return scorer.Scorer(taste, key, store.feedback_examples(), model=options.get("gemini_model", scorer.DEFAULT_MODEL))
 
 
 def cmd_reevaluate(args):
@@ -77,7 +77,7 @@ def cmd_reevaluate(args):
     store = Store(DB_PATH)
     try:
         config = options | store.search_config()
-        stats = pipeline.reevaluate(config, store, scorer=make_scorer(store))
+        stats = pipeline.reevaluate(config, store, scorer=make_scorer(store, options))
     finally:
         store.close()
     print(f"다시 평가: {stats.new}개 → 탈락 {stats.filtered}, 채점 {stats.scored} (${stats.cost_usd:.4f}), "

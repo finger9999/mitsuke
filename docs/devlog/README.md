@@ -10,3 +10,4 @@
 | [004](004-mac-app.md) | 2026-11-14 | 매물 확인·검색어 설정을 맥 앱으로 | 설정을 DB로 옮기고 SwiftUI 메뉴바 앱을 만듦, 알림 앱도 합침 |
 | [005](005-llm-scoring-cost.md) | 2026-11-14 | LLM 채점, 비용 걱정 | Haiku 5.5 + 아우터만 채점 + 월 상한. 사진은 76토큰이라 비싸지 않았음 |
 | [006](006-baseline-not-evaluated.md) | 2026-11-14 | 좋은 아우터가 "기준점"에 묻힘 | 첫 실행도 평가(알림만 생략), 기존 기준점은 reevaluate로 다시 평가 |
+| [007](007-switch-to-gemini.md) | 2026-11-14 | 채점 LLM을 Gemini로 | gemini-3.1-flash-lite 기본, 무료 등급 활용 |

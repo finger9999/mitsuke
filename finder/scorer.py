@@ -1,7 +1,10 @@
 """클라우드 LLM 채점: 사진 + 제목 + 설명 + 취향 기준 → 0~100점과 한 줄 이유.
 
-가장 싼 Claude 모델(Haiku 5.5)을 쓴다. 비용을 줄이려고 effort는 low, 사진은 썸네일 한 장만 보낸다.
-API 키는 환경 변수 ANTHROPIC_API_KEY, 없으면 macOS 키체인(서비스 이름 mitsuke-anthropic)에서 읽는다.
+Google Gemini를 쓴다. 기본 모델은 gemini-3.1-flash-lite (무료 등급이 있고, 유료여도 입력 $0.25 / 출력 $1.50 per 1M).
+더 싼 gemini-2.5-flash-lite($0.10 / $0.40)도 config.yaml의 gemini_model로 고를 수 있다.
+비용을 줄이려고 생각(thinking)은 최소로, 사진은 썸네일 한 장(240×240)만 보낸다.
+
+API 키는 환경 변수 GEMINI_API_KEY, 없으면 macOS 키체인(서비스 이름 mitsuke-gemini)에서 읽는다.
 launchd로 돌 때는 셸 환경 변수가 없어서 키체인이 필요하다.
 """
 
@@ -11,18 +14,22 @@ import os
 import subprocess
 from dataclasses import dataclass
 
-import anthropic
+import httpx
+from google import genai
+from google.genai import errors, types
 
 from finder.models import Listing
 from finder.sources import categories
 
 log = logging.getLogger(__name__)
 
-MODEL = "claude-haiku-5-5"
-# 달러 / 토큰 (프롬프트 10만 토큰 이하 기준)
-PRICE_IN = 0.10 / 1_000_000
-PRICE_OUT = 0.50 / 1_000_000
-KEYCHAIN_SERVICE = "mitsuke-anthropic"
+DEFAULT_MODEL = "gemini-3.1-flash-lite"
+# 유료 등급 기준 달러 / 100만 토큰 (입력, 출력). 무료 등급 안에서는 실제로 청구되지 않는다
+PRICES = {
+    "gemini-3.1-flash-lite": (0.25, 1.50),
+    "gemini-2.5-flash-lite": (0.10, 0.40),
+}
+KEYCHAIN_SERVICE = "mitsuke-gemini"
 
 SCHEMA = {
     "type": "object",
@@ -31,7 +38,6 @@ SCHEMA = {
         "reason": {"type": "string", "description": "한국어 한 문장"},
     },
     "required": ["score", "reason"],
-    "additionalProperties": False,
 }
 
 SYSTEM = """너는 일본 메루카리 중고 매물을 사용자의 취향에 맞춰 채점하는 쇼핑 비서다.
@@ -58,11 +64,11 @@ class Score:
     score: int
     reason: str
     model: str
-    cost_usd: float
+    cost_usd: float  # 유료 등급 가격으로 계산한 값 (무료 등급이면 실제 청구는 0)
 
 
 def api_key() -> str | None:
-    if key := os.environ.get("ANTHROPIC_API_KEY"):
+    if key := os.environ.get("GEMINI_API_KEY"):
         return key
     try:
         out = subprocess.run(
@@ -84,10 +90,32 @@ def _feedback_examples(examples: list[dict]) -> str:
     return "\n\n사용자가 최근 직접 평가한 매물 (참고용):\n" + "\n".join(lines)
 
 
+def _image_part(url: str) -> types.Part | None:
+    """Gemini는 URL을 직접 못 받아서 썸네일을 받아 바이트로 넘긴다 (7KB 안팎)."""
+    try:
+        resp = httpx.get(url, timeout=20)
+        resp.raise_for_status()
+    except httpx.HTTPError as e:
+        log.warning("썸네일 받기 실패 %s: %s", url, e)
+        return None
+    mime = resp.headers.get("content-type", "image/webp").split(";")[0]
+    return types.Part.from_bytes(data=resp.content, mime_type=mime)
+
+
 class Scorer:
-    def __init__(self, taste: str, key: str, examples: list[dict] | None = None):
-        self.client = anthropic.Anthropic(api_key=key, max_retries=2, timeout=60)
+    def __init__(self, taste: str, key: str, examples: list[dict] | None = None, model: str = DEFAULT_MODEL):
+        self.client = genai.Client(api_key=key)
+        self.model = model
         self.system = SYSTEM.format(taste=taste.strip()) + _feedback_examples(examples or [])
+
+    def _config(self, thinking: bool) -> types.GenerateContentConfig:
+        return types.GenerateContentConfig(
+            system_instruction=self.system,
+            response_mime_type="application/json",
+            response_json_schema=SCHEMA,
+            max_output_tokens=2000,
+            thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.MINIMAL) if thinking else None,
+        )
 
     def score(self, listing: Listing, description: str = "") -> Score:
         text = "\n".join([
@@ -97,24 +125,30 @@ class Scorer:
             f"카테고리: {categories.path(listing.category_id) or '알 수 없음'}",
             f"설명:\n{description[:2000] or '(없음)'}",
         ])
-        content = [{"type": "text", "text": text}]
-        if listing.image_url:
-            content.insert(0, {"type": "image", "source": {"type": "url", "url": listing.image_url}})
+        contents: list = [text]
+        if listing.image_url and (image := _image_part(listing.image_url)):
+            contents.insert(0, image)
 
-        response = self.client.messages.create(
-            model=MODEL,
-            max_tokens=2000,
-            system=self.system,
-            output_config={"effort": "low", "format": {"type": "json_schema", "schema": SCHEMA}},
-            messages=[{"role": "user", "content": content}],
-        )
-        cost = response.usage.input_tokens * PRICE_IN + response.usage.output_tokens * PRICE_OUT
-        if response.stop_reason == "refusal":
-            raise RuntimeError("모델이 채점을 거절함")
-        data = json.loads(next(b.text for b in response.content if b.type == "text"))
+        try:
+            response = self.client.models.generate_content(
+                model=self.model, contents=contents, config=self._config(thinking=True))
+        except errors.ClientError as e:
+            # 모델에 따라 생각 수준 설정을 안 받을 수 있다. 그때는 설정 없이 한 번 더
+            if "thinking" not in str(e).lower():
+                raise
+            response = self.client.models.generate_content(
+                model=self.model, contents=contents, config=self._config(thinking=False))
+
+        usage = response.usage_metadata
+        price_in, price_out = PRICES.get(self.model, PRICES[DEFAULT_MODEL])
+        out_tokens = (usage.candidates_token_count or 0) + (usage.thoughts_token_count or 0)
+        cost = ((usage.prompt_token_count or 0) * price_in + out_tokens * price_out) / 1_000_000
+        if not response.text:
+            raise RuntimeError(f"빈 응답 (finish_reason: {response.candidates[0].finish_reason if response.candidates else '?'})")
+        data = json.loads(response.text)
         return Score(
             score=max(0, min(100, int(data["score"]))),
-            reason=data["reason"].strip(),
-            model=MODEL,
+            reason=str(data["reason"]).strip(),
+            model=self.model,
             cost_usd=cost,
         )

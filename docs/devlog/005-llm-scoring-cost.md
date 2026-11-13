@@ -1,5 +1,7 @@
 # 005. LLM 채점, 비용을 얼마나 아낄 수 있나
 
+> 이후 채점 모델을 Gemini로 바꿨다 → [007](007-switch-to-gemini.md). 아래 비용 구조와 절약 장치는 그대로다.
+
 2026-11-14 · 관련 파일: [finder/scorer.py](../../finder/scorer.py), [finder/pipeline.py](../../finder/pipeline.py), [config.yaml](../../config.yaml)
 
 ## 요구사항

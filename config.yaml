@@ -4,10 +4,11 @@
 request_delay_seconds: 8   # 검색어 사이 대기 시간 (초)
 page_size: 60              # 검색어당 가져올 최신 매물 수
 
-# LLM 채점 (API 키: 키체인 mitsuke-anthropic 또는 환경 변수 ANTHROPIC_API_KEY)
+# LLM 채점 (Gemini. API 키: 키체인 mitsuke-gemini 또는 환경 변수 GEMINI_API_KEY)
+gemini_model: gemini-3.1-flash-lite   # 더 싸게: gemini-2.5-flash-lite
 notify_score: 90           # 이 점수 이상만 알림. 나머지는 앱 목록에만
 llm_calls_per_run: 30      # 실행 한 번에 채점하는 최대 매물 수
-llm_monthly_budget_usd: 1.0  # 한 달 채점 비용 상한 (달러). 넘으면 그달은 채점 없이 목록에만
+llm_monthly_budget_usd: 1.0  # 한 달 채점 비용 상한 (달러, 유료 가격 기준 추정). 넘으면 그달은 채점 없이 목록에만
 score_categories:          # 이 카테고리만 채점. 나머지 규칙 통과 매물은 채점 없이 앱 목록에만
   - 12                     # レディース > ジャケット/アウター
   - 31                     # メンズ > ジャケット/アウター
