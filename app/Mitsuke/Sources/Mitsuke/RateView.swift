@@ -8,6 +8,8 @@ struct RateView: View {
     @State private var queue: [Listing] = []
     @State private var index = 0
     @State private var ratedNow = 0
+    /// 되돌리기용: 이번에 평가한 순서 (대기열 위치, 매물)
+    @State private var history: [(index: Int, listing: Listing)] = []
 
     private var current: Listing? { index < queue.count ? queue[index] : nil }
 
@@ -41,6 +43,7 @@ struct RateView: View {
         return HStack {
             Text("👍 \(counts.likes) · 👎 \(counts.dislikes)").font(.callout)
             Spacer()
+            Button("되돌리기 (⌘Z)", action: undo).disabled(history.isEmpty).keyboardShortcut("z")
             Text(current == nil ? "" : "\(index + 1) / \(queue.count)").foregroundStyle(.secondary)
         }
         .padding(12)
@@ -99,8 +102,17 @@ struct RateView: View {
     private func rate(_ value: Int) {
         guard let item = current else { return }
         model.setFeedback(item, value)
+        history.append((index, item))
         ratedNow += 1
         index += 1
+    }
+
+    /// 방금 누른 평가를 지우고 그 매물로 돌아간다
+    private func undo() {
+        guard let last = history.popLast() else { return }
+        model.setFeedback(last.listing, nil)
+        ratedNow -= 1
+        index = last.index
     }
 
     private func skip() {

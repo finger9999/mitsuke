@@ -10,7 +10,7 @@ struct ListingsView: View {
     @AppStorage("sortByScore") private var sortByScore = false
 
     private var filtered: [Listing] {
-        let items = model.listings.filter { l in
+        let items = model.visibleListings.filter { l in
             (searchFilter == "전체" || l.search == searchFilter)
                 && (query.isEmpty || l.title.localizedCaseInsensitiveContains(query))
         }
@@ -42,6 +42,7 @@ struct ListingsView: View {
             }
         }
         .frame(minWidth: 560, minHeight: 400)
+        .overlay(alignment: .bottom) { UndoHideBar().animation(.default, value: model.justHidden) }
         .onAppear {
             model.reload()
             model.markViewed()
@@ -61,6 +62,7 @@ struct ListingsView: View {
             }
             .pickerStyle(.segmented).labelsHidden().frame(width: 130)
             Toggle("탈락·기준점 포함", isOn: $model.includeFiltered)
+            Toggle("👎 숨긴 매물 보기", isOn: $model.showDisliked)
             Spacer()
             Text("\(filtered.count)개").foregroundStyle(.secondary)
             Button {
@@ -88,7 +90,7 @@ struct ListingCard: View {
             Thumbnail(url: listing.imageURL)
                 .aspectRatio(1, contentMode: .fit)
                 .overlay(alignment: .topLeading) { badge.padding(6) }
-                .opacity(listing.passed ? 1 : 0.55)
+                .opacity(listing.passed && listing.feedback != -1 ? 1 : 0.55)
             HStack {
                 Text(Fmt.yen(listing.priceJPY)).font(.headline)
                 if let score = listing.score { ScoreBadge(score: score) }
@@ -113,7 +115,9 @@ struct ListingCard: View {
     }
 
     @ViewBuilder private var badge: some View {
-        if listing.firstSeen > model.lastViewed && listing.passed {
+        if listing.feedback == -1 {
+            tag("숨김", .gray)
+        } else if listing.firstSeen > model.lastViewed && listing.passed {
             tag("NEW", .red)
         } else if listing.status == "filtered" {
             tag("탈락", .gray)

@@ -6,7 +6,7 @@ struct MenuBarView: View {
     @EnvironmentObject var model: AppModel
     @Environment(\.openWindow) private var openWindow
 
-    private var recent: [Listing] { Array(model.listings.filter(\.passed).prefix(8)) }
+    private var recent: [Listing] { Array(model.visibleListings.filter(\.passed).prefix(8)) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -171,5 +171,27 @@ struct FeedbackButtons: View {
         }
         .buttonStyle(.borderless)
         .help(value > 0 ? "좋아요 (다시 누르면 취소)" : "별로예요 (다시 누르면 취소)")
+    }
+}
+
+/// 👎 직후 화면 아래에 잠깐 뜨는 "되돌리기" 막대
+struct UndoHideBar: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        if let item = model.justHidden {
+            HStack {
+                Image(systemName: "eye.slash")
+                Text("숨겼어요: \(item.title)").lineLimit(1)
+                Spacer()
+                Button("되돌리기") { model.undoHide() }.keyboardShortcut("z")
+            }
+            .font(.callout)
+            .padding(.horizontal, 14).padding(.vertical, 10)
+            .background(.regularMaterial, in: .rect(cornerRadius: 10))
+            .shadow(radius: 4)
+            .padding(12)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+        }
     }
 }

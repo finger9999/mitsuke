@@ -13,6 +13,9 @@ final class AppModel: ObservableObject {
     @Published var error: String?
     @Published var includeFiltered = false { didSet { reload() } }
     @Published var isRunning = false
+    @Published var showDisliked = false
+    /// 방금 👎로 숨긴 매물. 잠깐 "되돌리기" 막대를 보여준다
+    @Published var justHidden: Listing?
     @Published private(set) var lastViewed: Date
 
     static let root: URL = {
@@ -35,8 +38,11 @@ final class AppModel: ObservableObject {
         }
     }
 
+    /// 👎한 매물은 기본 목록에서 숨긴다 (showDisliked를 켜면 보임)
+    var visibleListings: [Listing] { showDisliked ? listings : listings.filter { $0.feedback != -1 } }
+
     /// 마지막으로 목록을 본 뒤에 들어온 통과 매물
-    var unseen: [Listing] { listings.filter { $0.passed && $0.firstSeen > lastViewed } }
+    var unseen: [Listing] { listings.filter { $0.passed && $0.feedback != -1 && $0.firstSeen > lastViewed } }
 
     func markViewed() {
         lastViewed = Date()
@@ -106,6 +112,21 @@ final class AppModel: ObservableObject {
     func toggleFeedback(_ listing: Listing, _ value: Int) {
         let new = listing.feedback == value ? nil : value
         write { try $0.setFeedback(listingID: listing.id, value: new) }
+        if new == -1 { announceHidden(listing) }
+    }
+
+    func announceHidden(_ listing: Listing) {
+        justHidden = listing
+        Task {
+            try? await Task.sleep(for: .seconds(6))
+            if justHidden?.id == listing.id { justHidden = nil }
+        }
+    }
+
+    func undoHide() {
+        guard let listing = justHidden else { return }
+        setFeedback(listing, nil)
+        justHidden = nil
     }
 
     // MARK: - 지금 확인
