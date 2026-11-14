@@ -31,7 +31,8 @@ CREATE TABLE IF NOT EXISTS listings (
     buyee_url      TEXT,
     est_total_krw  INTEGER,
     feedback       INTEGER,                   -- 1 = 👍, -1 = 👎, NULL = 없음
-    feedback_at    INTEGER
+    feedback_at    INTEGER,
+    baseline       INTEGER NOT NULL DEFAULT 0 -- 검색어 첫 실행 때 이미 있던 매물 (알림 안 보냄)
 );
 CREATE INDEX IF NOT EXISTS idx_listings_search ON listings(search);
 CREATE INDEX IF NOT EXISTS idx_listings_first_seen ON listings(first_seen);
@@ -112,6 +113,8 @@ class Store:
         cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(listings)")}
         if "category_id" not in cols:
             self.conn.execute("ALTER TABLE listings ADD COLUMN category_id INTEGER")
+        if "baseline" not in cols:
+            self.conn.execute("ALTER TABLE listings ADD COLUMN baseline INTEGER NOT NULL DEFAULT 0")
         run_cols = {r["name"] for r in self.conn.execute("PRAGMA table_info(runs)")}
         for col, kind in (("scored", "INTEGER"), ("cost_usd", "REAL")):
             if col not in run_cols:
@@ -140,13 +143,14 @@ class Store:
 
     def add(self, listing: Listing, status: str, filter_reason: str | None = None, buyee_url: str | None = None,
             score: int | None = None, score_reason: str | None = None, score_model: str | None = None,
-            score_cost_usd: float | None = None):
+            score_cost_usd: float | None = None, baseline: bool | None = None):
         # 이미 있는 매물(다시 평가)이면 평가 결과만 바꾸고 first_seen·피드백은 그대로 둔다
         self.conn.execute(
             """INSERT INTO listings
                (id, search, title, price_jpy, image_url, url, created_at, category_id,
-                first_seen, status, filter_reason, buyee_url, score, score_reason, score_model, score_cost_usd)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                first_seen, status, filter_reason, buyee_url, score, score_reason, score_model, score_cost_usd,
+                baseline)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(id) DO UPDATE SET
                  category_id = excluded.category_id, status = excluded.status,
                  filter_reason = excluded.filter_reason, buyee_url = excluded.buyee_url,
@@ -169,6 +173,7 @@ class Store:
                 score_reason,
                 score_model,
                 score_cost_usd,
+                int(bool(baseline)),
             ),
         )
         self.conn.commit()
@@ -228,6 +233,24 @@ class Store:
         return [
             Listing(r["id"], r["search"], r["title"], r["price_jpy"], r["image_url"], r["url"],
                     r["created_at"], r["category_id"])
+            for r in rows
+        ]
+
+    def listings_to_retry(self, max_age_hours: int = 48) -> list[tuple[Listing, bool]]:
+        """채점을 시도했지만 점수를 못 받은 최근 매물 (상한 초과, API 오류, 채점 중단) → (매물, 기준점 여부).
+
+        채점 대상이 아니라서 건너뛴 매물은 score_reason이 비어 있어서 여기 안 잡힌다.
+        """
+        since = int(time.time()) - max_age_hours * 3600
+        rows = self.conn.execute(
+            """SELECT * FROM listings
+               WHERE status = 'passed' AND score IS NULL AND score_reason IS NOT NULL AND first_seen >= ?
+               ORDER BY first_seen""",
+            (since,),
+        ).fetchall()
+        return [
+            (Listing(r["id"], r["search"], r["title"], r["price_jpy"], r["image_url"], r["url"],
+                     r["created_at"], r["category_id"]), bool(r["baseline"]))
             for r in rows
         ]
 

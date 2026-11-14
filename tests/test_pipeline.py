@@ -159,3 +159,27 @@ def test_billing_error_halts_scoring(monkeypatch):
     assert Broke.calls == 1  # 첫 실패 뒤로는 호출하지 않음
     reasons = {r["id"]: r["score_reason"] for r in store.recent(10)}
     assert "선불 크레딧" in reasons["mercari:m2"] and "채점 중단" in reasons["mercari:m4"]
+
+
+def test_retry_unscored_from_previous_run(monkeypatch):
+    store = Store(":memory:")
+    scored_run(store, [L(1)], FakeScorer({}), monkeypatch)  # 첫 실행 (기준점)
+    # 상한 1: m2만 채점되고 m3은 점수 없이 남는다
+    scored_run(store, [L(3), L(2), L(1)], FakeScorer({}), monkeypatch, {"llm_calls_per_run": 1})
+    unscored = [l.id for l, _ in store.listings_to_retry()]
+    assert unscored == ["mercari:m3"]
+    # 다음 실행: 새 매물은 없고, 남은 m3를 다시 채점해서 95점이면 알림
+    scorer = FakeScorer({"mercari:m3": 95})
+    stats, sent = scored_run(store, [L(3), L(2), L(1)], scorer, monkeypatch)
+    assert scorer.calls == ["mercari:m3"] and sent == ["mercari:m3"]
+    assert store.listings_to_retry() == []
+
+
+def test_retry_baseline_does_not_notify(monkeypatch):
+    store = Store(":memory:")
+    # 첫 실행에서 상한에 걸려 점수 없이 남은 기준점 매물
+    scored_run(store, [L(2), L(1)], FakeScorer({}), monkeypatch, {"llm_calls_per_run": 1})
+    assert [b for _, b in store.listings_to_retry()] == [True]
+    scorer = FakeScorer({"mercari:m2": 95, "mercari:m1": 95})
+    stats, sent = scored_run(store, [L(2), L(1)], scorer, monkeypatch)
+    assert len(scorer.calls) == 1 and sent == []

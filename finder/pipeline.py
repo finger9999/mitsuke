@@ -5,6 +5,7 @@
 실행당 LLM 호출 수에 상한이 있고, 상한을 넘거나 채점에 실패한 매물은 점수 없이 목록에 올린다.
 """
 
+import functools
 import logging
 import random
 import time
@@ -83,17 +84,18 @@ class Evaluator:
         self.budget_left = config.get("llm_monthly_budget_usd", 1.0) - store.month_cost_usd()
         self.halted: str | None = None  # 결제·권한 오류가 나면 이번 실행에서는 채점을 멈춘다
 
-    def evaluate(self, listing: Listing, rules: filters.Rules, notify: bool):
+    def evaluate(self, listing: Listing, rules: filters.Rules, notify: bool, baseline: bool = False):
         stats, store = self.stats, self.store
+        store_add = functools.partial(store.add, baseline=baseline)
         reason = filters.check(listing, rules)
         if reason:
-            store.add(listing, status="filtered", filter_reason=reason)
+            store_add(listing, status="filtered", filter_reason=reason)
             stats.filtered += 1
             return
 
         url = buyee.item_url(listing.id)
         if self.scorer is None:
-            store.add(listing, status="passed", buyee_url=url)
+            store_add(listing, status="passed", buyee_url=url)
             if notify and notifier.notify(listing, url):
                 store.set_status(listing.id, "notified")
                 stats.notified += 1
@@ -101,13 +103,13 @@ class Evaluator:
 
         if self.score_categories and not self.score_categories & set(categories.lineage(listing.category_id)):
             # 지금 찾는 종류가 아니면 LLM을 부르지 않고 목록에만 올린다
-            store.add(listing, status="passed", buyee_url=url)
+            store_add(listing, status="passed", buyee_url=url)
             return
         if self.halted:
-            store.add(listing, status="passed", buyee_url=url, score_reason=f"채점 중단: {self.halted}")
+            store_add(listing, status="passed", buyee_url=url, score_reason=f"채점 중단: {self.halted}")
             return
         if stats.scored >= self.llm_limit or stats.cost_usd >= self.budget_left:
-            store.add(listing, status="passed", buyee_url=url, score_reason="LLM 호출·비용 상한을 넘어 채점하지 않음")
+            store_add(listing, status="passed", buyee_url=url, score_reason="LLM 호출·비용 상한을 넘어 채점하지 않음")
             return
         if stats.scored:
             self.sleep(self.llm_interval)
@@ -117,7 +119,7 @@ class Evaluator:
             short = _short_error(e)
             log.warning("채점 실패 %s: %s", listing.id, e)
             stats.errors.append(f"채점 {listing.id}: {short}")
-            store.add(listing, status="passed", buyee_url=url, score_reason=f"채점 실패: {short}")
+            store_add(listing, status="passed", buyee_url=url, score_reason=f"채점 실패: {short}")
             if getattr(e, "code", None) in (401, 402, 403, 429):
                 # 키·결제·한도 문제는 다음 매물에서도 똑같이 실패한다. 헛호출하지 않고 멈춘다
                 self.halted = short
@@ -125,7 +127,7 @@ class Evaluator:
             return
         stats.scored += 1
         stats.cost_usd += result.cost_usd
-        store.add(listing, status="scored", buyee_url=url, score=result.score, score_reason=result.reason,
+        store_add(listing, status="scored", buyee_url=url, score=result.score, score_reason=result.reason,
                   score_model=result.model, score_cost_usd=result.cost_usd)
         if notify and result.score >= self.notify_score and notifier.notify(listing, url, result.score, result.reason):
             store.set_status(listing.id, "notified")
@@ -174,9 +176,19 @@ def run(config: dict, store: Store, notify: bool = True, search_fn=mercari.searc
             log.info("%r 첫 실행: 매물 %d개 평가 (알림 없음)", keyword, len(fresh))
         # 오래된 것부터 처리해서 알림도 올라온 순서대로 쌓이게 한다
         for listing in reversed(fresh):
-            evaluator.evaluate(listing, rules, notify=notify and not first_run)
+            evaluator.evaluate(listing, rules, notify=notify and not first_run, baseline=first_run)
 
         log.info("%r: 가져옴 %d, 신규 %d", keyword, len(listings), len(fresh))
+
+    # 지난 실행에서 상한·API 오류로 점수를 못 받은 매물을 남은 상한 안에서 다시 채점한다
+    if scorer is not None:
+        search_cfgs = {s["keyword"]: s for s in config.get("searches", [])}
+        retries = store.listings_to_retry()
+        if retries:
+            log.info("점수 없는 매물 %d개 다시 채점 시도", len(retries))
+        for listing, baseline in retries:
+            rules = rules_for(search_cfgs.get(listing.search, {}), defaults)
+            evaluator.evaluate(listing, rules, notify=notify and not baseline, baseline=baseline)
 
     return stats
 
