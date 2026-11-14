@@ -11,3 +11,4 @@
 | [005](005-llm-scoring-cost.md) | 2026-11-14 | LLM 채점, 비용 걱정 | Haiku 5.5 + 아우터만 채점 + 월 상한. 사진은 76토큰이라 비싸지 않았음 |
 | [006](006-baseline-not-evaluated.md) | 2026-11-14 | 좋은 아우터가 "기준점"에 묻힘 | 첫 실행도 평가(알림만 생략), 기존 기준점은 reevaluate로 다시 평가 |
 | [007](007-switch-to-gemini.md) | 2026-11-14 | 채점 LLM을 Gemini로 | gemini-3.1-flash-lite 기본, 무료 등급 활용 |
+| [008](008-taste-by-example.md) | 2026-11-14 | 취향을 정확히 반영하기 | 👍👎 사진을 보여주고 비교 채점 + 빠른 평가 화면 |
