@@ -10,4 +10,6 @@ notify_score: 90           # 이 점수 이상만 알림. 나머지는 앱 목�
 llm_calls_per_run: 30      # 실행 한 번에 채점하는 최대 매물 수
 llm_monthly_budget_usd: 1.0  # 한 달 채점 비용 상한 (달러, 유료 가격 기준 추정). 넘으면 그달은 채점 없이 목록에만
 llm_min_interval_seconds: 5  # 채점 호출 사이 간격 (무료 등급 분당 한도 대비)
+reference_likes: 3         # 채점할 때 비교용으로 보여줄 👍 매물 사진 수
+reference_dislikes: 2      # 👎 매물 사진 수
 score_categories: []       # 비우면 규칙 통과 매물 전부 채점. 예: [12, 31]이면 아우터만

@@ -182,6 +182,31 @@ class Store:
         self.conn.commit()
         return cur.rowcount > 0
 
+    def feedback_references(self, category_id: int | None, likes: int = 3, dislikes: int = 2,
+                            exclude_id: str | None = None) -> list[dict]:
+        """채점할 매물과 비교해 보여줄 👍👎 매물. 카테고리가 가까운 것 → 최근 평가한 것 순서.
+
+        나중에 온디바이스 사진 임베딩(4단계)이 생기면 정렬 기준만 사진 유사도로 바꾸면 된다.
+        """
+        from finder.sources import categories  # 순환 import 방지
+
+        target = categories.lineage(category_id)
+
+        def closeness(row) -> int:
+            # 공통 조상이 깊을수록 가깝다 (같은 소분류 > 같은 중분류 > 같은 대분류)
+            mine = categories.lineage(row["category_id"])
+            return len(set(target) & set(mine))
+
+        rows = self.conn.execute(
+            """SELECT id, title, price_jpy, image_url, category_id, score, feedback, feedback_at
+               FROM listings WHERE feedback IS NOT NULL AND id != ? ORDER BY feedback_at DESC""",
+            (exclude_id or "",),
+        ).fetchall()
+        rows = sorted(rows, key=closeness, reverse=True)  # 안정 정렬이라 같은 거리면 최근 평가 순
+        liked = [dict(r) for r in rows if r["feedback"] > 0][:likes]
+        disliked = [dict(r) for r in rows if r["feedback"] < 0][:dislikes]
+        return liked + disliked
+
     def feedback_examples(self, limit: int = 12) -> list[dict]:
         """채점 프롬프트에 넣을 최근 피드백. 👍와 👎를 반씩 섞는다."""
         half = limit // 2
@@ -193,9 +218,11 @@ class Store:
             ).fetchall()
         return [dict(r) for r in rows]
 
-    def listings_to_reevaluate(self, include_unscored: bool) -> list[Listing]:
+    def listings_to_reevaluate(self, include_unscored: bool, rescore: bool = False) -> list[Listing]:
         where = "status = 'seeded'"
-        if include_unscored:
+        if rescore:
+            where += " OR status IN ('passed', 'scored', 'notified')"
+        elif include_unscored:
             where += " OR (status = 'passed' AND score IS NULL)"
         rows = self.conn.execute(f"SELECT * FROM listings WHERE {where} ORDER BY first_seen, rowid").fetchall()
         return [

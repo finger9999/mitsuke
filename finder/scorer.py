@@ -2,7 +2,7 @@
 
 Google Gemini를 쓴다. 기본 모델은 gemini-3.1-flash-lite (무료 등급이 있고, 유료여도 입력 $0.25 / 출력 $1.50 per 1M).
 더 싼 gemini-2.5-flash-lite($0.10 / $0.40)도 config.yaml의 gemini_model로 고를 수 있다.
-비용을 줄이려고 생각(thinking)은 최소로, 사진은 썸네일 한 장(240×240)만 보낸다.
+생각(thinking)은 최소로 둔다. 채점할 매물은 원본 사진, 비교용 👍👎 매물은 썸네일을 보낸다 (docs/devlog/008).
 
 API 키는 환경 변수 GEMINI_API_KEY, 없으면 macOS 키체인(서비스 이름 mitsuke-gemini)에서 읽는다.
 launchd로 돌 때는 셸 환경 변수가 없어서 키체인이 필요하다.
@@ -14,10 +14,10 @@ import os
 import subprocess
 from dataclasses import dataclass
 
-import httpx
 from google import genai
 from google.genai import errors, types
 
+from finder import images
 from finder.models import Listing
 from finder.sources import categories
 
@@ -41,7 +41,11 @@ SCHEMA = {
 }
 
 SYSTEM = """너는 일본 메루카리 중고 매물을 사용자의 취향에 맞춰 채점하는 쇼핑 비서다.
-매물 사진 한 장, 제목, 설명, 카테고리를 보고 이 사용자가 사고 싶어 할 정도를 0~100점으로 매긴다.
+매물 사진, 제목, 설명, 카테고리를 보고 이 사용자가 사고 싶어 할 정도를 0~100점으로 매긴다.
+
+옷 취향은 작은 디테일(깃 모양, 무늬의 결, 단추·자수 같은 장식, 실루엣, 소재감, 색 조합)로 갈린다.
+사용자가 직접 👍/👎한 매물 사진이 함께 주어지면, 그것이 글로 된 취향 기준보다 정확한 근거다.
+채점할 매물을 그 사진들과 디테일 단위로 비교해서, 좋아한 쪽과 싫어한 쪽 중 어디에 가까운지 판단한다.
 
 점수 기준:
 - 90~100: 취향 기준의 "알림 받고 싶은 것"에 확실히 맞는다. 사용자에게 바로 알림이 간다.
@@ -54,7 +58,7 @@ SYSTEM = """너는 일본 메루카리 중고 매물을 사용자의 취향에 �
 - "알림 받고 싶은 것"에 "무조건"이나 "반드시"로 적힌 조건은 확인될 때만 90점 이상을 준다.
   제목·설명·사진으로 확인할 수 없으면 89점 이하로 주고, 이유에 무엇이 불확실한지 적는다.
 - 일본어 소재 표기: ウール·wool·毛·メリノ·ラムウール = 울. カシミヤ(캐시미어)·アンゴラ·モヘア는 울과 다른 동물 섬유다.
-- 이유는 한국어 한 문장으로, 점수를 정한 핵심 근거만 쓴다.
+- 이유는 한국어 한 문장으로, 점수를 정한 핵심 근거만 쓴다. 참고 사진과 비교했다면 어떤 디테일이 닮았거나 다른지 쓴다.
 
 사용자 취향 기준:
 {taste}"""
@@ -96,23 +100,32 @@ def _feedback_examples(examples: list[dict]) -> str:
     )
 
 
-def _image_part(url: str) -> types.Part | None:
-    """Gemini는 URL을 직접 못 받아서 썸네일을 받아 바이트로 넘긴다 (7KB 안팎)."""
-    try:
-        resp = httpx.get(url, timeout=20)
-        resp.raise_for_status()
-    except httpx.HTTPError as e:
-        log.warning("썸네일 받기 실패 %s: %s", url, e)
-        return None
-    mime = resp.headers.get("content-type", "image/webp").split(";")[0]
-    return types.Part.from_bytes(data=resp.content, mime_type=mime)
+def _part(image: tuple[bytes, str] | None) -> types.Part | None:
+    # Gemini는 URL을 직접 못 받아서 바이트로 넘긴다
+    return types.Part.from_bytes(data=image[0], mime_type=image[1]) if image else None
+
+
+def _reference_parts(refs: list[dict]) -> list:
+    """👍👎 참고 매물 → [설명 글, 사진, ...]. 사진은 썸네일 (한 장 수십~수백 토큰)."""
+    parts: list = []
+    for i, r in enumerate(refs, 1):
+        mark = "👍 좋아함" if r["feedback"] > 0 else "👎 싫어함"
+        ai = f", 그때 AI 점수 {r['score']}점" if r.get("score") is not None else ""
+        parts.append(f"[참고 {i}] 사용자 {mark}{ai}: {r['title']} (¥{r['price_jpy']:,}) "
+                     f"/ {categories.path(r['category_id']) or '카테고리 모름'}")
+        if image := _part(images.thumb(r["id"], r["image_url"])):
+            parts.append(image)
+    return parts
 
 
 class Scorer:
-    def __init__(self, taste: str, key: str, examples: list[dict] | None = None, model: str = DEFAULT_MODEL):
+    def __init__(self, taste: str, key: str, examples: list[dict] | None = None, model: str = DEFAULT_MODEL,
+                 reference_fn=None):
+        """reference_fn(listing) → 비교용으로 보여줄 👍👎 매물 목록 (Store.feedback_references)."""
         self.client = genai.Client(api_key=key)
         self.model = model
         self.system = SYSTEM.format(taste=taste.strip()) + _feedback_examples(examples or [])
+        self.reference_fn = reference_fn
 
     def _config(self, thinking: bool) -> types.GenerateContentConfig:
         return types.GenerateContentConfig(
@@ -131,9 +144,16 @@ class Scorer:
             f"카테고리: {categories.path(listing.category_id) or '알 수 없음'}",
             f"설명:\n{description[:2000] or '(없음)'}",
         ])
-        contents: list = [text]
-        if listing.image_url and (image := _image_part(listing.image_url)):
-            contents.insert(0, image)
+        refs = self.reference_fn(listing) if self.reference_fn else []
+        contents: list = []
+        if refs:
+            contents.append("사용자가 직접 평가한 비슷한 매물들:")
+            contents += _reference_parts(refs)
+            contents.append("─── 이제 아래 매물을 채점한다 ───")
+        # 채점할 매물은 원본 사진 (디테일이 보이게). 실패하면 썸네일
+        if image := _part(images.full(listing.id, listing.image_url)):
+            contents.append(image)
+        contents.append(text)
 
         try:
             response = self.client.models.generate_content(

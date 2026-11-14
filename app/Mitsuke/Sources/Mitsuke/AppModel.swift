@@ -90,6 +90,18 @@ final class AppModel: ObservableObject {
     func deleteSearch(_ s: Search) { write { try $0.deleteSearch(id: s.id) } }
     func saveSettings(_ g: GlobalSettings) { write { try $0.saveSettings(g) } }
 
+    func rateQueue() -> [Listing] {
+        (try? database().rateQueue()) ?? []
+    }
+
+    func setFeedback(_ listing: Listing, _ value: Int?) {
+        write { try $0.setFeedback(listingID: listing.id, value: value) }
+    }
+
+    var feedbackCount: (likes: Int, dislikes: Int) {
+        (listings.filter { $0.feedback == 1 }.count, listings.filter { $0.feedback == -1 }.count)
+    }
+
     /// 같은 버튼을 다시 누르면 피드백을 지운다
     func toggleFeedback(_ listing: Listing, _ value: Int) {
         let new = listing.feedback == value ? nil : value

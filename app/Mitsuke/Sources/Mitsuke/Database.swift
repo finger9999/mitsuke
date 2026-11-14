@@ -21,6 +21,8 @@ struct Listing: Identifiable, Hashable {
 
     var passed: Bool { status == "passed" || status == "notified" || status == "scored" }
     var mercariID: String { String(id.split(separator: ":").last ?? "") }
+    /// 첫 번째 사진 원본. 썸네일(240px)보다 디테일이 잘 보인다
+    var fullImageURL: URL? { URL(string: "https://static.mercdn.net/item/detail/orig/photos/\(mercariID)_1.jpg") }
     /// 기준점·탈락 매물은 buyee_url이 비어 있어서 여기서 만든다
     var purchaseURL: URL? { buyeeURL ?? URL(string: "https://buyee.jp/mercari/item/\(mercariID)") }
 }
@@ -129,24 +131,26 @@ final class Database {
             SELECT id, search, title, price_jpy, image_url, url, buyee_url, first_seen, status, filter_reason,
                    score, score_reason, feedback
             FROM listings \(where_) ORDER BY first_seen DESC, rowid DESC LIMIT ?
-            """, [.int(limit)]) { s in
-            result.append(Listing(
-                id: self.text(s, 0) ?? "",
-                search: self.text(s, 1) ?? "",
-                title: self.text(s, 2) ?? "",
-                priceJPY: self.int(s, 3) ?? 0,
-                imageURL: self.text(s, 4).flatMap(URL.init(string:)),
-                url: self.text(s, 5).flatMap(URL.init(string:)),
-                buyeeURL: self.text(s, 6).flatMap(URL.init(string:)),
-                firstSeen: Date(timeIntervalSince1970: TimeInterval(self.int(s, 7) ?? 0)),
-                status: self.text(s, 8) ?? "",
-                filterReason: self.text(s, 9),
-                score: self.int(s, 10),
-                scoreReason: self.text(s, 11),
-                feedback: self.int(s, 12)
-            ))
-        }
+            """, [.int(limit)]) { s in result.append(self.listing(s)) }
         return result
+    }
+
+    private func listing(_ s: OpaquePointer) -> Listing {
+        Listing(
+            id: text(s, 0) ?? "",
+            search: text(s, 1) ?? "",
+            title: text(s, 2) ?? "",
+            priceJPY: int(s, 3) ?? 0,
+            imageURL: text(s, 4).flatMap(URL.init(string:)),
+            url: text(s, 5).flatMap(URL.init(string:)),
+            buyeeURL: text(s, 6).flatMap(URL.init(string:)),
+            firstSeen: Date(timeIntervalSince1970: TimeInterval(int(s, 7) ?? 0)),
+            status: text(s, 8) ?? "",
+            filterReason: text(s, 9),
+            score: int(s, 10),
+            scoreReason: text(s, 11),
+            feedback: int(s, 12)
+        )
     }
 
     func setFeedback(listingID: String, value: Int?) throws {
@@ -162,6 +166,35 @@ final class Database {
         try run("SELECT COALESCE(SUM(score_cost_usd), 0) FROM listings WHERE first_seen >= ?",
                 [.int(Int(start.timeIntervalSince1970))]) { s in cost = sqlite3_column_double(s, 0) }
         return cost
+    }
+
+    /// 빠른 평가 대기열: AI가 헷갈릴 만한 점수(70점 근처)부터, 5개마다 탈락 매물 하나를 무작위로 섞는다
+    /// (탈락 매물 중 사고 싶은 게 있으면 규칙이 놓친 것이라 재현율 측정에 쓰인다)
+    func rateQueue(limit: Int = 60) throws -> [Listing] {
+        let columns = """
+            id, search, title, price_jpy, image_url, url, buyee_url, first_seen, status, filter_reason,
+            score, score_reason, feedback
+            """
+        func load(_ sql: String) throws -> [Listing] {
+            var result: [Listing] = []
+            try run(sql, [.int(limit)]) { s in result.append(self.listing(s)) }
+            return result
+        }
+        let main = try load("""
+            SELECT \(columns) FROM listings
+            WHERE feedback IS NULL AND status NOT IN ('seeded', 'filtered')
+            ORDER BY score IS NULL, ABS(score - 70), first_seen DESC LIMIT ?
+            """)
+        let filtered = try load("""
+            SELECT \(columns) FROM listings WHERE feedback IS NULL AND status = 'filtered' ORDER BY RANDOM() LIMIT ?
+            """)
+        var queue: [Listing] = []
+        var f = filtered.makeIterator()
+        for (i, item) in main.enumerated() {
+            queue.append(item)
+            if i % 5 == 4, let extra = f.next() { queue.append(extra) }
+        }
+        return queue
     }
 
     func lastRun() throws -> RunInfo? {

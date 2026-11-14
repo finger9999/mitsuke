@@ -49,3 +49,14 @@ def test_feedback_examples_show_ai_score():
     from finder.scorer import _feedback_examples
     text = _feedback_examples([{"title": "면 숏코트", "price_jpy": 4380, "score": 50, "feedback": 1}])
     assert "AI 50점 → 사용자 👍 좋아함: 면 숏코트 (¥4,380)" in text
+
+
+def test_feedback_references_prefer_close_category():
+    from finder.models import Listing
+    store = Store(":memory:")
+    # 149 ロングコート(아우터), 150 トレンチコート(아우터), 122 셔츠(상의)
+    for i, (cat, fb) in enumerate([(122, 1), (150, 1), (149, -1), (122, -1)], 1):
+        store.add(Listing(f"mercari:m{i}", "s", f"t{i}", 1000, None, "u", category_id=cat), status="scored")
+        store.set_feedback(f"mercari:m{i}", fb)
+    refs = store.feedback_references(149, likes=1, dislikes=1)
+    assert [r["id"] for r in refs] == ["mercari:m2", "mercari:m3"]  # 같은 아우터가 먼저

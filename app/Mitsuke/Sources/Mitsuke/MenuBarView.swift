@@ -74,6 +74,10 @@ struct MenuBarView: View {
                 openWindow(id: "listings")
                 bringToFront()
             }
+            Button("빠른 평가") {
+                openWindow(id: "rate")
+                bringToFront()
+            }
             Button("설정") {
                 openWindow(id: "settings")
                 bringToFront()

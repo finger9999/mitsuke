@@ -69,7 +69,11 @@ def make_scorer(store: Store, options: dict):
     if not taste.strip():
         logging.warning("취향 기준이 비어 있어 채점 없이 실행 (맥 앱 설정에서 입력)")
         return None
-    return scorer.Scorer(taste, key, store.feedback_examples(), model=options.get("gemini_model", scorer.DEFAULT_MODEL))
+    refs = options.get("reference_likes", 3), options.get("reference_dislikes", 2)
+    return scorer.Scorer(
+        taste, key, store.feedback_examples(), model=options.get("gemini_model", scorer.DEFAULT_MODEL),
+        reference_fn=lambda l: store.feedback_references(l.category_id, *refs, exclude_id=l.id),
+    )
 
 
 def cmd_reevaluate(args):
@@ -77,7 +81,8 @@ def cmd_reevaluate(args):
     store = Store(DB_PATH)
     try:
         config = options | store.search_config()
-        stats = pipeline.reevaluate(config, store, scorer=make_scorer(store, options), llm_limit=args.limit)
+        stats = pipeline.reevaluate(config, store, scorer=make_scorer(store, options), llm_limit=args.limit,
+                                    rescore=args.rescore)
     finally:
         store.close()
     print(f"다시 평가: {stats.new}개 → 탈락 {stats.filtered}, 채점 {stats.scored} (${stats.cost_usd:.4f}), "
@@ -148,6 +153,7 @@ def main(argv=None):
 
     p_re = sub.add_parser("reevaluate", help="기준점·점수 없는 매물 다시 평가 (알림 없음)")
     p_re.add_argument("--limit", type=int, default=100, help="이번에 채점할 최대 매물 수 (기본 100)")
+    p_re.add_argument("--rescore", action="store_true", help="이미 점수가 있는 매물도 다시 채점")
     p_re.set_defaults(func=cmd_reevaluate)
 
     for name, help_ in (("like", "👍 기록"), ("dislike", "👎 기록"), ("unrate", "피드백 지우기")):

@@ -182,7 +182,8 @@ def run(config: dict, store: Store, notify: bool = True, search_fn=mercari.searc
 
 
 def reevaluate(config: dict, store: Store, scorer=None, chain_fn=mercari.fetch_category_chain,
-               describe_fn=mercari.fetch_description, sleep=time.sleep, llm_limit: int | None = None) -> RunStats:
+               describe_fn=mercari.fetch_description, sleep=time.sleep, llm_limit: int | None = None,
+               rescore: bool = False) -> RunStats:
     """이미 저장된 매물을 다시 평가한다. 알림은 보내지 않는다.
 
     대상: 예전 방식으로 평가 없이 저장된 기준점 매물, 그리고 채점기가 있으면 아직 점수가 없는 통과 매물.
@@ -191,7 +192,7 @@ def reevaluate(config: dict, store: Store, scorer=None, chain_fn=mercari.fetch_c
     evaluator = Evaluator(config, store, stats, scorer, describe_fn, sleep, llm_limit)
     defaults = config.get("defaults", {})
     search_cfgs = {s["keyword"]: s for s in config.get("searches", [])}
-    targets = store.listings_to_reevaluate(include_unscored=scorer is not None)
+    targets = store.listings_to_reevaluate(include_unscored=scorer is not None, rescore=rescore and scorer is not None)
     learn_categories(targets, chain_fn=chain_fn, sleep=sleep)
     for listing in targets:
         evaluator.evaluate(listing, rules_for(search_cfgs.get(listing.search, {}), defaults), notify=False)

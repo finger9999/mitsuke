@@ -20,6 +20,11 @@ struct MitsukeApp: App {
         }
         .menuBarExtraStyle(.window)
 
+        Window("빠른 평가", id: "rate") {
+            RateView().environmentObject(model)
+        }
+        .defaultSize(width: 620, height: 760)
+
         Window("미츠케 설정", id: "settings") {
             SettingsView().environmentObject(model)
         }

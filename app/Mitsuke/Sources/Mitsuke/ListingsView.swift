@@ -4,6 +4,7 @@ import SwiftUI
 
 struct ListingsView: View {
     @EnvironmentObject var model: AppModel
+    @Environment(\.openWindow) private var openWindow
     @State private var searchFilter = "전체"
     @State private var query = ""
     @AppStorage("sortByScore") private var sortByScore = false
@@ -62,6 +63,11 @@ struct ListingsView: View {
             Toggle("탈락·기준점 포함", isOn: $model.includeFiltered)
             Spacer()
             Text("\(filtered.count)개").foregroundStyle(.secondary)
+            Button {
+                openWindow(id: "rate")
+            } label: {
+                Label("빠른 평가", systemImage: "hand.thumbsup")
+            }
             Button {
                 model.runNow()
             } label: {
