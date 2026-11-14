@@ -12,3 +12,4 @@ data/*.json
 app/Mitsuke/.build/
 app/Mitsuke/build/
 app/Mitsuke/.swiftpm/
+data/images/
