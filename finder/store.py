@@ -212,6 +212,9 @@ class Store:
         disliked = [dict(r) for r in rows if r["feedback"] < 0][:dislikes]
         return liked + disliked
 
+    def feedback_ids(self) -> set[str]:
+        return {r[0] for r in self.conn.execute("SELECT id FROM listings WHERE feedback IS NOT NULL")}
+
     def feedback_examples(self, limit: int = 12) -> list[dict]:
         """채점 프롬프트에 넣을 최근 피드백. 👍와 👎를 반씩 섞는다."""
         half = limit // 2

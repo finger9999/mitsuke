@@ -4,6 +4,7 @@
 """
 
 import logging
+import time
 from pathlib import Path
 
 import httpx
@@ -46,3 +47,27 @@ def thumb(listing_id: str, url: str | None) -> tuple[bytes, str] | None:
     if not url:
         return None
     return fetch(url, listing_id.replace(":", "_") + "_thumb")
+
+
+def cleanup(keep_ids: set[str], full_days: float = 1, thumb_days: float = 7) -> int:
+    """오래된 캐시 사진을 지운다. 지운 파일 수를 돌려준다.
+
+    - 원본 사진(_full): 채점할 때 한 번 쓰고 끝이라 하루 지나면 지운다 (장당 약 75KB, 용량 대부분).
+    - 썸네일(_thumb): 👍👎한 매물(keep_ids)은 채점 참고 사진으로 계속 쓰니 남기고, 나머지는 7일 뒤 지운다.
+    """
+    if not CACHE.exists():
+        return 0
+    now = time.time()
+    removed = 0
+    for path in CACHE.iterdir():
+        stem = path.stem
+        listing_id = stem.rsplit("_", 1)[0].replace("_", ":", 1)
+        age_days = (now - path.stat().st_mtime) / 86400
+        if stem.endswith("_full"):
+            expired = age_days > full_days
+        else:
+            expired = listing_id not in keep_ids and age_days > thumb_days
+        if expired:
+            path.unlink()
+            removed += 1
+    return removed

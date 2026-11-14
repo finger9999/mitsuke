@@ -9,13 +9,14 @@
 
 import argparse
 import logging
+import logging.handlers
 import sys
 from datetime import datetime
 from pathlib import Path
 
 import yaml
 
-from finder import pipeline, scorer
+from finder import images, pipeline, scorer
 from finder.sources import categories, mercari
 from finder.store import Store
 
@@ -26,11 +27,15 @@ LOG_PATH = ROOT / "logs" / "mitsuke.log"
 
 def setup_logging():
     LOG_PATH.parent.mkdir(exist_ok=True)
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-        handlers=[logging.FileHandler(LOG_PATH, encoding="utf-8"), logging.StreamHandler()],
-    )
+    # 1MB가 넘으면 mitsuke.log.1~3으로 밀어내고 그보다 오래된 건 버린다
+    handlers = [logging.handlers.RotatingFileHandler(LOG_PATH, maxBytes=1_000_000, backupCount=3, encoding="utf-8")]
+    if sys.stderr.isatty():
+        # 터미널에서 직접 돌릴 때만 화면에도 찍는다 (launchd에서는 launchd.err.log에 똑같이 쌓이기만 해서)
+        handlers.append(logging.StreamHandler())
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s", handlers=handlers)
+    # 요청 하나하나 찍는 로그는 끈다 (로그 대부분을 차지했다)
+    for noisy in ("httpx", "httpx2", "google_genai"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
 
 
 def load_config(path: Path) -> dict:
@@ -49,6 +54,9 @@ def cmd_run(args):
         run_id = store.start_run()
         stats = pipeline.run(config, store, notify=not args.no_notify, scorer=make_scorer(store, options))
         store.finish_run(run_id, stats.fetched, stats.new, stats.notified, stats.errors, stats.scored, stats.cost_usd)
+        removed = images.cleanup(store.feedback_ids())
+        if removed:
+            logging.info("오래된 캐시 사진 %d장 정리", removed)
     finally:
         store.close()
     logging.info(
