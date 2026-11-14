@@ -15,6 +15,7 @@
 """
 
 import argparse
+import functools
 import json
 import random
 import sys
@@ -32,6 +33,9 @@ from finder import scorer as scorer_mod  # noqa: E402
 from finder.models import Listing  # noqa: E402
 from finder.sources import mercari  # noqa: E402
 from finder.store import Store  # noqa: E402
+
+# 백그라운드로 돌려 파일로 받을 때도 진행 상황이 바로 보이게
+print = functools.partial(print, flush=True)  # noqa: A001
 
 REPORTS = ROOT / "evals" / "reports"
 DATASETS = ROOT / "evals" / "datasets"
