@@ -9,6 +9,5 @@ gemini_model: gemini-3.1-flash-lite   # 더 싸게: gemini-2.5-flash-lite
 notify_score: 90           # 이 점수 이상만 알림. 나머지는 앱 목록에만
 llm_calls_per_run: 30      # 실행 한 번에 채점하는 최대 매물 수
 llm_monthly_budget_usd: 1.0  # 한 달 채점 비용 상한 (달러, 유료 가격 기준 추정). 넘으면 그달은 채점 없이 목록에만
-score_categories:          # 이 카테고리만 채점. 나머지 규칙 통과 매물은 채점 없이 앱 목록에만
-  - 12                     # レディース > ジャケット/アウター
-  - 31                     # メンズ > ジャケット/アウター
+llm_min_interval_seconds: 5  # 채점 호출 사이 간격 (무료 등급 분당 한도 대비)
+score_categories: []       # 비우면 규칙 통과 매물 전부 채점. 예: [12, 31]이면 아우터만

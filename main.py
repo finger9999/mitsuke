@@ -77,7 +77,7 @@ def cmd_reevaluate(args):
     store = Store(DB_PATH)
     try:
         config = options | store.search_config()
-        stats = pipeline.reevaluate(config, store, scorer=make_scorer(store, options))
+        stats = pipeline.reevaluate(config, store, scorer=make_scorer(store, options), llm_limit=args.limit)
     finally:
         store.close()
     print(f"다시 평가: {stats.new}개 → 탈락 {stats.filtered}, 채점 {stats.scored} (${stats.cost_usd:.4f}), "
@@ -147,6 +147,7 @@ def main(argv=None):
     p_cats.set_defaults(func=cmd_update_categories)
 
     p_re = sub.add_parser("reevaluate", help="기준점·점수 없는 매물 다시 평가 (알림 없음)")
+    p_re.add_argument("--limit", type=int, default=100, help="이번에 채점할 최대 매물 수 (기본 100)")
     p_re.set_defaults(func=cmd_reevaluate)
 
     for name, help_ in (("like", "👍 기록"), ("dislike", "👎 기록"), ("unrate", "피드백 지우기")):

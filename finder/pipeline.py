@@ -68,12 +68,15 @@ class Evaluator:
     """매물 하나를 규칙 → (채점) → 저장 → (알림) 순서로 처리한다. 실행 하나 동안 상한과 비용을 함께 센다."""
 
     def __init__(self, config: dict, store: Store, stats: RunStats, scorer=None,
-                 describe_fn=mercari.fetch_description):
+                 describe_fn=mercari.fetch_description, sleep=time.sleep, llm_limit: int | None = None):
         self.store = store
         self.stats = stats
         self.scorer = scorer
         self.describe_fn = describe_fn
-        self.llm_limit = config.get("llm_calls_per_run", 30)
+        self.sleep = sleep
+        self.llm_limit = llm_limit or config.get("llm_calls_per_run", 30)
+        # 무료 등급은 분당 호출 수 제한이 있어서 호출 사이를 띄운다
+        self.llm_interval = config.get("llm_min_interval_seconds", 5)
         self.notify_score = config.get("notify_score", 90)
         # 채점할 카테고리. 비어 있으면 규칙 통과 매물 전부, 있으면 그 카테고리(와 그 아래)만 채점한다
         self.score_categories = {int(c) for c in config.get("score_categories") or []}
@@ -106,6 +109,8 @@ class Evaluator:
         if stats.scored >= self.llm_limit or stats.cost_usd >= self.budget_left:
             store.add(listing, status="passed", buyee_url=url, score_reason="LLM 호출·비용 상한을 넘어 채점하지 않음")
             return
+        if stats.scored:
+            self.sleep(self.llm_interval)
         try:
             result = self.scorer.score(listing, self.describe_fn(listing.id))
         except Exception as e:  # 채점 실패도 목록에는 올려서 놓치지 않는다
@@ -138,7 +143,7 @@ def _short_error(e: Exception) -> str:
 def run(config: dict, store: Store, notify: bool = True, search_fn=mercari.search, sleep=time.sleep,
         chain_fn=mercari.fetch_category_chain, scorer=None, describe_fn=mercari.fetch_description) -> RunStats:
     stats = RunStats()
-    evaluator = Evaluator(config, store, stats, scorer, describe_fn)
+    evaluator = Evaluator(config, store, stats, scorer, describe_fn, sleep)
     defaults = config.get("defaults", {})
     delay = config.get("request_delay_seconds", 8)
     page_size = config.get("page_size", 60)
@@ -177,13 +182,13 @@ def run(config: dict, store: Store, notify: bool = True, search_fn=mercari.searc
 
 
 def reevaluate(config: dict, store: Store, scorer=None, chain_fn=mercari.fetch_category_chain,
-               describe_fn=mercari.fetch_description, sleep=time.sleep) -> RunStats:
+               describe_fn=mercari.fetch_description, sleep=time.sleep, llm_limit: int | None = None) -> RunStats:
     """이미 저장된 매물을 다시 평가한다. 알림은 보내지 않는다.
 
     대상: 예전 방식으로 평가 없이 저장된 기준점 매물, 그리고 채점기가 있으면 아직 점수가 없는 통과 매물.
     """
     stats = RunStats()
-    evaluator = Evaluator(config, store, stats, scorer, describe_fn)
+    evaluator = Evaluator(config, store, stats, scorer, describe_fn, sleep, llm_limit)
     defaults = config.get("defaults", {})
     search_cfgs = {s["keyword"]: s for s in config.get("searches", [])}
     targets = store.listings_to_reevaluate(include_unscored=scorer is not None)

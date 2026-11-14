@@ -188,7 +188,7 @@ class Store:
         rows = []
         for sign in (1, -1):
             rows += self.conn.execute(
-                "SELECT title, price_jpy, feedback FROM listings WHERE feedback = ? ORDER BY feedback_at DESC LIMIT ?",
+                "SELECT title, price_jpy, score, feedback FROM listings WHERE feedback = ? ORDER BY feedback_at DESC LIMIT ?",
                 (sign, half),
             ).fetchall()
         return [dict(r) for r in rows]

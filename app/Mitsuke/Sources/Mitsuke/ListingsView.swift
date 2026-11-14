@@ -6,12 +6,15 @@ struct ListingsView: View {
     @EnvironmentObject var model: AppModel
     @State private var searchFilter = "전체"
     @State private var query = ""
+    @AppStorage("sortByScore") private var sortByScore = false
 
     private var filtered: [Listing] {
-        model.listings.filter { l in
+        let items = model.listings.filter { l in
             (searchFilter == "전체" || l.search == searchFilter)
                 && (query.isEmpty || l.title.localizedCaseInsensitiveContains(query))
         }
+        // 점수순: 점수 없는 매물은 뒤로, 같은 점수면 최신순
+        return sortByScore ? items.sorted { ($0.score ?? -1, $0.firstSeen) > ($1.score ?? -1, $1.firstSeen) } : items
     }
 
     private var searchNames: [String] {
@@ -51,6 +54,11 @@ struct ListingsView: View {
             }
             .frame(width: 200)
             TextField("제목 검색", text: $query).textFieldStyle(.roundedBorder).frame(maxWidth: 220)
+            Picker("정렬", selection: $sortByScore) {
+                Text("최신순").tag(false)
+                Text("점수순").tag(true)
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(width: 130)
             Toggle("탈락·기준점 포함", isOn: $model.includeFiltered)
             Spacer()
             Text("\(filtered.count)개").foregroundStyle(.secondary)

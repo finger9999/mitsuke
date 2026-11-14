@@ -42,4 +42,10 @@ def test_feedback():
     store.add(Listing("mercari:m1", "s", "코트", 5000, None, "u"), status="scored")
     assert store.set_feedback("mercari:m1", 1)
     assert not store.set_feedback("mercari:nope", 1)
-    assert store.feedback_examples() == [{"title": "코트", "price_jpy": 5000, "feedback": 1}]
+    assert store.feedback_examples() == [{"title": "코트", "price_jpy": 5000, "score": None, "feedback": 1}]
+
+
+def test_feedback_examples_show_ai_score():
+    from finder.scorer import _feedback_examples
+    text = _feedback_examples([{"title": "면 숏코트", "price_jpy": 4380, "score": 50, "feedback": 1}])
+    assert "AI 50점 → 사용자 👍 좋아함: 면 숏코트 (¥4,380)" in text
