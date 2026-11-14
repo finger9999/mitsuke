@@ -61,7 +61,16 @@
 
 ## 실수: 캐시 사진을 공개 저장소에 올렸다
 
-`data/images/`를 `.gitignore`에 넣지 않아 매물 사진 5장이 커밋·푸시됐다. 바로 다음 커밋에서 추적을 끊고 무시 목록에 넣었다. 이전 커밋 기록에는 남아 있다.
+`data/images/`를 `.gitignore`에 넣지 않아 매물 사진 5장이 커밋·푸시됐다. 다음 커밋에서 추적을 끊고 무시 목록에 넣었다.
+
+이전 커밋 기록에도 남아 있어서, 사용자 요청으로 기록을 다시 썼다.
+
+```bash
+git filter-branch --index-filter 'git rm -r -q --cached --ignore-unmatch data/images' -- 7e2333a^..HEAD
+git push --force-with-lease origin main
+```
+
+이제 `main` 브랜치 기록 어디에도 사진이 없다. 다만 GitHub은 예전 커밋(`7e2333a`)을 SHA로 직접 접근하면 한동안 계속 보여준다. 어떤 브랜치에서도 이어지지 않는 커밋이라 목록에는 안 나오지만, 완전히 지우려면 GitHub 지원팀에 캐시 삭제를 요청해야 한다.
 
 ## 결과: 아직 효과가 안 보인다
 
