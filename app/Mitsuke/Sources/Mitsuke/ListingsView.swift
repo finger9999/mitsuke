@@ -63,6 +63,7 @@ struct ListingsView: View {
             .pickerStyle(.segmented).labelsHidden().frame(width: 130)
             Toggle("탈락·기준점 포함", isOn: $model.includeFiltered)
             Toggle("👎 숨긴 매물 보기", isOn: $model.showDisliked)
+            Toggle("\(AppModel.lowScore)점 미만 보기", isOn: $model.showLowScore)
             Spacer()
             Text("\(filtered.count)개").foregroundStyle(.secondary)
             Button {
@@ -90,7 +91,7 @@ struct ListingCard: View {
             Thumbnail(url: listing.imageURL)
                 .aspectRatio(1, contentMode: .fit)
                 .overlay(alignment: .topLeading) { badge.padding(6) }
-                .opacity(listing.passed && listing.feedback != -1 ? 1 : 0.55)
+                .opacity(listing.passed && listing.feedback != -1 && !AppModel.isLow(listing) ? 1 : 0.55)
             HStack {
                 Text(Fmt.yen(listing.priceJPY)).font(.headline)
                 if let score = listing.score { ScoreBadge(score: score) }
@@ -117,6 +118,8 @@ struct ListingCard: View {
     @ViewBuilder private var badge: some View {
         if listing.feedback == -1 {
             tag("숨김", .gray)
+        } else if AppModel.isLow(listing) {
+            tag("낮은 점수", .gray)
         } else if listing.firstSeen > model.lastViewed && listing.passed {
             tag("NEW", .red)
         } else if listing.status == "filtered" {

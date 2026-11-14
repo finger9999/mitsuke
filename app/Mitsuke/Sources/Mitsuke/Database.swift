@@ -182,7 +182,7 @@ final class Database {
         }
         let main = try load("""
             SELECT \(columns) FROM listings
-            WHERE feedback IS NULL AND status NOT IN ('seeded', 'filtered')
+            WHERE feedback IS NULL AND status NOT IN ('seeded', 'filtered') AND (score IS NULL OR score >= 20)
             ORDER BY score IS NULL, ABS(score - 70), first_seen DESC LIMIT ?
             """)
         let filtered = try load("""

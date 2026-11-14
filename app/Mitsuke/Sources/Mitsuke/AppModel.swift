@@ -14,6 +14,9 @@ final class AppModel: ObservableObject {
     @Published var includeFiltered = false { didSet { reload() } }
     @Published var isRunning = false
     @Published var showDisliked = false
+    @Published var showLowScore = false
+    /// 이 점수 미만은 기본 목록에서 숨긴다
+    static let lowScore = 20
     /// 방금 👎로 숨긴 매물. 잠깐 "되돌리기" 막대를 보여준다
     @Published var justHidden: Listing?
     @Published private(set) var lastViewed: Date
@@ -38,11 +41,19 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// 👎한 매물은 기본 목록에서 숨긴다 (showDisliked를 켜면 보임)
-    var visibleListings: [Listing] { showDisliked ? listings : listings.filter { $0.feedback != -1 } }
+    /// 👎한 매물과 낮은 점수 매물은 기본 목록에서 숨긴다 (각 토글을 켜면 보임)
+    var visibleListings: [Listing] {
+        listings.filter { l in
+            (showDisliked || l.feedback != -1) && (showLowScore || !Self.isLow(l))
+        }
+    }
+
+    static func isLow(_ l: Listing) -> Bool { (l.score ?? 100) < lowScore }
 
     /// 마지막으로 목록을 본 뒤에 들어온 통과 매물
-    var unseen: [Listing] { listings.filter { $0.passed && $0.feedback != -1 && $0.firstSeen > lastViewed } }
+    var unseen: [Listing] {
+        listings.filter { $0.passed && $0.feedback != -1 && !Self.isLow($0) && $0.firstSeen > lastViewed }
+    }
 
     func markViewed() {
         lastViewed = Date()
