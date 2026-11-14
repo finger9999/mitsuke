@@ -13,3 +13,5 @@ app/Mitsuke/.build/
 app/Mitsuke/build/
 app/Mitsuke/.swiftpm/
 data/images/
+evals/datasets/*
+!evals/datasets/.gitkeep
