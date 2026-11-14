@@ -21,13 +21,13 @@ final class AppModel: ObservableObject {
     @Published var justHidden: Listing?
     @Published private(set) var lastViewed: Date
 
-    static let root: URL = {
+    nonisolated static let root: URL = {
         if let path = Bundle.main.object(forInfoDictionaryKey: "MitsukeRoot") as? String, !path.hasPrefix("__") {
             return URL(fileURLWithPath: path)
         }
         return URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     }()
-    static let dbPath = root.appendingPathComponent("data/mitsuke.db").path
+    nonisolated static let dbPath = root.appendingPathComponent("data/mitsuke.db").path
     static let launchdLabel = "com.mitsuke.run"
 
     private var db: Database?
@@ -74,6 +74,8 @@ final class AppModel: ObservableObject {
             searches = try db.searches()
             settings = try db.settings()
             lastRun = try db.lastRun()
+            // 목록 위쪽(새 매물) 썸네일을 미리 받아 둔다. 메뉴바나 창을 열면 바로 보이게
+            ImageStore.shared.prefetch(visibleListings.prefix(40).compactMap { l in l.imageURL.map { ($0, l.localThumb) } })
             monthCostUSD = try db.monthCostUSD()
             error = nil
         } catch {

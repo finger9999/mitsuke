@@ -88,7 +88,7 @@ struct ListingCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Thumbnail(url: listing.imageURL)
+            Thumbnail(url: listing.imageURL, localFile: listing.localThumb)
                 .aspectRatio(1, contentMode: .fit)
                 .overlay(alignment: .topLeading) { badge.padding(6) }
                 .opacity(listing.passed && listing.feedback != -1 && !AppModel.isLow(listing) ? 1 : 0.55)

@@ -51,12 +51,10 @@ struct RateView: View {
 
     private func card(_ item: Listing) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            AsyncImage(url: item.fullImageURL) { phase in
-                switch phase {
-                case .success(let image): image.resizable().scaledToFit()
-                case .failure: Thumbnail(url: item.imageURL).scaledToFit()
-                default: ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
+            ZStack {
+                // 원본이 오기 전까지 썸네일을 먼저 보여준다
+                CachedImage(url: item.imageURL, localFile: item.localThumb, fill: false)
+                CachedImage(url: item.fullImageURL, localFile: item.localFull, fill: false)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(.quaternary.opacity(0.3), in: .rect(cornerRadius: 8))
@@ -97,6 +95,13 @@ struct RateView: View {
     private func reload() {
         queue = model.rateQueue()
         index = 0
+        prefetchAhead()
+    }
+
+    /// 다음 매물 몇 개의 원본 사진을 미리 받아 둔다
+    private func prefetchAhead() {
+        let next = queue.dropFirst(index).prefix(4)
+        ImageStore.shared.prefetch(next.compactMap { l in l.fullImageURL.map { ($0, l.localFull) } })
     }
 
     private func rate(_ value: Int) {
@@ -105,6 +110,7 @@ struct RateView: View {
         history.append((index, item))
         ratedNow += 1
         index += 1
+        prefetchAhead()
     }
 
     /// 방금 누른 평가를 지우고 그 매물로 돌아간다
@@ -118,5 +124,6 @@ struct RateView: View {
     private func skip() {
         guard current != nil else { return }
         index += 1
+        prefetchAhead()
     }
 }

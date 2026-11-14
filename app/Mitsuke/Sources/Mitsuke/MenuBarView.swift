@@ -100,7 +100,7 @@ struct ListingRow: View {
             model.open(listing.purchaseURL)
         } label: {
             HStack(spacing: 10) {
-                Thumbnail(url: listing.imageURL).frame(width: 44, height: 44)
+                Thumbnail(url: listing.imageURL, localFile: listing.localThumb).frame(width: 44, height: 44)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
                         Text(Fmt.yen(listing.priceJPY)).font(.callout.weight(.semibold))
@@ -126,15 +126,10 @@ struct ListingRow: View {
 
 struct Thumbnail: View {
     let url: URL?
+    var localFile: URL?
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let image): image.resizable().scaledToFill()
-            default: Rectangle().fill(.quaternary)
-            }
-        }
-        .clipShape(.rect(cornerRadius: 6))
+        CachedImage(url: url, localFile: localFile).clipShape(.rect(cornerRadius: 6))
     }
 }
 
