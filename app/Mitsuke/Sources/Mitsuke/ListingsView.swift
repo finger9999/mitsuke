@@ -29,6 +29,11 @@ struct ListingsView: View {
             if let error = model.error {
                 Text(error).foregroundStyle(.red).padding()
             }
+            if !model.notificationsAllowed {
+                NotificationWarning().padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(.orange.opacity(0.08))
+                Divider()
+            }
             if filtered.isEmpty {
                 ContentUnavailableView("매물 없음", systemImage: "tray",
                                        description: Text(model.includeFiltered ? "조건에 맞는 매물이 없어요." : "통과한 매물이 아직 없어요. '탈락·기준점 포함'을 켜면 전부 볼 수 있어요."))

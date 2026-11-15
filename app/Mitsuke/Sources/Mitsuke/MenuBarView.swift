@@ -16,6 +16,10 @@ struct MenuBarView: View {
                 Text(error).font(.caption).foregroundStyle(.red).padding(12)
                 Divider()
             }
+            if !model.notificationsAllowed {
+                NotificationWarning().padding(12)
+                Divider()
+            }
             if recent.isEmpty {
                 Text("아직 통과한 매물이 없어요.\n새 매물이 올라오면 여기에 쌓여요.")
                     .font(.callout).foregroundStyle(.secondary)
@@ -188,5 +192,22 @@ struct UndoHideBar: View {
             .padding(12)
             .transition(.move(edge: .bottom).combined(with: .opacity))
         }
+    }
+}
+
+/// 알림이 꺼져 있을 때 경고
+struct NotificationWarning: View {
+    @EnvironmentObject var model: AppModel
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "bell.slash.fill").foregroundStyle(.orange)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("알림이 꺼져 있어요").font(.callout.weight(.semibold))
+                Text("90점 이상 매물이 나와도 알림이 안 가요.").font(.caption).foregroundStyle(.secondary)
+                Button("알림 설정 열기") { model.openNotificationSettings() }.controlSize(.small)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

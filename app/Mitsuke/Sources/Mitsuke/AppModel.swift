@@ -2,6 +2,7 @@
 
 import AppKit
 import Foundation
+import UserNotifications
 
 @MainActor
 final class AppModel: ObservableObject {
@@ -13,6 +14,8 @@ final class AppModel: ObservableObject {
     @Published var error: String?
     @Published var includeFiltered = false { didSet { reload() } }
     @Published var isRunning = false
+    /// 알림이 꺼져 있으면 파이프라인의 알림이 조용히 실패한다. 화면에 경고를 띄우려고 확인한다
+    @Published var notificationsAllowed = true
     @Published var showDisliked = false
     @Published var showLowScore = false
     /// 이 점수 미만은 기본 목록에서 숨긴다
@@ -36,8 +39,12 @@ final class AppModel: ObservableObject {
     init() {
         lastViewed = UserDefaults.standard.object(forKey: "lastViewed") as? Date ?? .distantPast
         reload()
+        Task { await checkNotifications(askIfUndecided: true) }
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.reload() }
+            Task { @MainActor in
+                self?.reload()
+                await self?.checkNotifications(askIfUndecided: false)
+            }
         }
     }
 
@@ -91,6 +98,23 @@ final class AppModel: ObservableObject {
         } catch {
             self.error = error.localizedDescription
         }
+    }
+
+    // MARK: - 알림 권한
+
+    func checkNotifications(askIfUndecided: Bool) async {
+        let center = UNUserNotificationCenter.current()
+        var status = await center.notificationSettings().authorizationStatus
+        if status == .notDetermined && askIfUndecided {
+            // 앱 화면에서 물어야 허용 창이 뜬다 (launchd에서 부른 알림 모드에서는 안 뜬다)
+            _ = try? await center.requestAuthorization(options: [.alert, .sound])
+            status = await center.notificationSettings().authorizationStatus
+        }
+        notificationsAllowed = status == .authorized || status == .provisional
+    }
+
+    func openNotificationSettings() {
+        open(URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=com.mitsuke.app"))
     }
 
     // MARK: - 설정 편집
