@@ -127,6 +127,9 @@ def cmd_tune(args):
     store = Store(DB_PATH)
     try:
         result = tuner.tune(store, key, options, sample=args.sample, margin=args.margin, apply=not args.dry_run)
+    except Exception as e:  # Gemini 과부하 등. 취향 기준은 그대로다
+        print(f"자동 개선 실패 (취향 기준은 그대로): {str(e)[:200]}")
+        return 1
     finally:
         store.close()
     text = tuner.report(result)

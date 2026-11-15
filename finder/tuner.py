@@ -149,7 +149,11 @@ def tune(store: Store, key: str, options: dict, sample: int = 40, margin: float 
     mism = _mismatches(propose_rows, notify_score)
     if not mism:
         raise RuntimeError("제안용 매물 중 AI와 어긋난 게 없어 고칠 근거가 없습니다")
-    client = genai.Client(api_key=key, http_options=types.HttpOptions(timeout=120_000))
+    client = genai.Client(api_key=key, http_options=types.HttpOptions(
+        timeout=120_000,
+        retry_options=types.HttpRetryOptions(attempts=5, initial_delay=10, max_delay=60,
+                                             http_status_codes=[429, 503, 504]),
+    ))
     proposed, changes, cost = propose(client, model, taste, mism)
 
     # 검증: 👍는 전부, 👎는 무작위로 채워 sample개 (👍가 적어서 다 쓴다)
