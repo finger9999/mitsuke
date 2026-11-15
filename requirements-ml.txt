@@ -1,0 +1,5 @@
+# evals/hf_experiment.py 전용 (파이프라인에는 필요 없음)
+torch>=2.15
+open_clip_torch>=4.2
+transformers>=5.23
+scikit-learn>=1.9
