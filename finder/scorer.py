@@ -124,7 +124,13 @@ class Scorer:
     def __init__(self, taste: str, key: str, examples: list[dict] | None = None, model: str = DEFAULT_MODEL,
                  reference_fn=None):
         """reference_fn(listing) → 비교용으로 보여줄 👍👎 매물 목록 (Store.feedback_references)."""
-        self.client = genai.Client(api_key=key)
+        # 시간 제한이 없으면 맥이 잠든 사이 끊긴 연결을 영원히 기다린다 (013 다음 날 23시간 멈춤, devlog 015)
+        # 무료 등급은 503(과부하)이 잦아서, 503·504·429는 잠깐 쉬었다가 3번까지 다시 시도한다
+        self.client = genai.Client(api_key=key, http_options=types.HttpOptions(
+            timeout=60_000,
+            retry_options=types.HttpRetryOptions(attempts=3, initial_delay=5, max_delay=30,
+                                                 http_status_codes=[429, 503, 504]),
+        ))
         self.model = model
         self.system = SYSTEM.format(taste=taste.strip()) + _feedback_examples(examples or [])
         self.reference_fn = reference_fn

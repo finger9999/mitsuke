@@ -30,6 +30,7 @@ import yaml  # noqa: E402
 
 import main  # noqa: E402
 from finder import scorer as scorer_mod  # noqa: E402
+from finder.metrics import auc, metrics  # noqa: E402,F401
 from finder.models import Listing  # noqa: E402
 from finder.sources import mercari  # noqa: E402
 from finder.store import Store  # noqa: E402
@@ -39,32 +40,6 @@ print = functools.partial(print, flush=True)  # noqa: A001
 
 REPORTS = ROOT / "evals" / "reports"
 DATASETS = ROOT / "evals" / "datasets"
-
-
-def auc(pos: list[float], neg: list[float]) -> float | None:
-    if not pos or not neg:
-        return None
-    wins = sum((p > n) + 0.5 * (p == n) for p in pos for n in neg)
-    return wins / (len(pos) * len(neg))
-
-
-def metrics(rows: list[dict], threshold: int) -> dict:
-    """rows: {feedback: 1|-1, score: int}"""
-    pos = [r["score"] for r in rows if r["feedback"] > 0]
-    neg = [r["score"] for r in rows if r["feedback"] < 0]
-    alerted = [r for r in rows if r["score"] >= threshold]
-    tp = sum(r["feedback"] > 0 for r in alerted)
-    return {
-        "n": len(rows),
-        "likes": len(pos),
-        "dislikes": len(neg),
-        "auc": auc(pos, neg),
-        "mean_like": sum(pos) / len(pos) if pos else None,
-        "mean_dislike": sum(neg) / len(neg) if neg else None,
-        "alerts": len(alerted),
-        "precision": tp / len(alerted) if alerted else None,
-        "recall": tp / len(pos) if pos else None,
-    }
 
 
 def labeled(store: Store) -> list[dict]:

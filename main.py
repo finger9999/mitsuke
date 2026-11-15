@@ -4,12 +4,14 @@
   python main.py recent [-n 20] [--all]   최근 매물 보기
   python main.py update-categories   메루카리 카테고리 스냅샷 새로 받기
   python main.py reevaluate   평가 없이 저장된 기준점·점수 없는 매물 다시 평가 (알림 없음)
+  python main.py tune [--dry-run]   👍👎로 취향 기준을 고쳐 쓰고, 검증에서 나아지면 반영
   python main.py like|dislike|unrate <매물 ID>   피드백 기록 (m123... 또는 mercari:m123...)
 """
 
 import argparse
 import logging
 import logging.handlers
+import signal
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -43,8 +45,19 @@ def load_config(path: Path) -> dict:
         return yaml.safe_load(f) or {}
 
 
+class RunTimeout(Exception):
+    pass
+
+
+def _on_alarm(signum, frame):
+    raise RunTimeout()
+
+
 def cmd_run(args):
     options = load_config(args.config)
+    # 안전장치: 실행이 너무 오래 걸리면 끝낸다. 멈춘 실행이 남아 있으면 launchd가 다음 실행을 시작하지 않는다
+    signal.signal(signal.SIGALRM, _on_alarm)
+    signal.alarm(options.get("max_run_minutes", 25) * 60)
     store = Store(DB_PATH)
     try:
         if store.import_config(options):
@@ -52,7 +65,12 @@ def cmd_run(args):
         # 검색어·예산은 DB(맥 앱에서 편집), 요청 간격 같은 동작 설정은 config.yaml
         config = options | store.search_config()
         run_id = store.start_run()
-        stats = pipeline.run(config, store, notify=not args.no_notify, scorer=make_scorer(store, options))
+        try:
+            stats = pipeline.run(config, store, notify=not args.no_notify, scorer=make_scorer(store, options))
+        except RunTimeout:
+            logging.error("실행이 %d분을 넘어 중단했습니다", options.get("max_run_minutes", 25))
+            store.finish_run(run_id, 0, 0, 0, ["시간 초과로 중단"])
+            return 1
         store.finish_run(run_id, stats.fetched, stats.new, stats.notified, stats.errors, stats.scored, stats.cost_usd)
         removed = images.cleanup(store.feedback_ids())
         if removed:
@@ -95,6 +113,27 @@ def cmd_reevaluate(args):
         store.close()
     print(f"다시 평가: {stats.new}개 → 탈락 {stats.filtered}, 채점 {stats.scored} (${stats.cost_usd:.4f}), "
           f"나머지 통과 {stats.new - stats.filtered - stats.scored}")
+    return 0
+
+
+def cmd_tune(args):
+    from finder import tuner  # PyTorch 같은 무거운 의존성은 없지만 평소 실행에는 필요 없어서 늦게 불러온다
+
+    options = load_config(args.config)
+    key = scorer.api_key()
+    if not key:
+        print("API 키가 없습니다.")
+        return 1
+    store = Store(DB_PATH)
+    try:
+        result = tuner.tune(store, key, options, sample=args.sample, margin=args.margin, apply=not args.dry_run)
+    finally:
+        store.close()
+    text = tuner.report(result)
+    path = ROOT / "evals" / "reports" / f"{datetime.now():%Y%m%d-%H%M}-tune.md"
+    path.write_text(text, encoding="utf-8")
+    print(text)
+    print(f"저장: {path.relative_to(ROOT)}")
     return 0
 
 
@@ -163,6 +202,12 @@ def main(argv=None):
     p_re.add_argument("--limit", type=int, default=100, help="이번에 채점할 최대 매물 수 (기본 100)")
     p_re.add_argument("--rescore", action="store_true", help="이미 점수가 있는 매물도 다시 채점")
     p_re.set_defaults(func=cmd_reevaluate)
+
+    p_tune = sub.add_parser("tune", help="취향 기준 자동 개선 (검증에서 나아질 때만 반영)")
+    p_tune.add_argument("--sample", type=int, default=40, help="검증에 쓸 매물 수 (👍는 전부 포함)")
+    p_tune.add_argument("--margin", type=float, default=0.03, help="분리도가 이만큼 올라야 반영")
+    p_tune.add_argument("--dry-run", action="store_true", help="검증까지만 하고 반영하지 않음")
+    p_tune.set_defaults(func=cmd_tune)
 
     for name, help_ in (("like", "👍 기록"), ("dislike", "👎 기록"), ("unrate", "피드백 지우기")):
         p = sub.add_parser(name, help=help_)

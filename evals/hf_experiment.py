@@ -30,7 +30,7 @@ from PIL import Image  # noqa: E402
 from sklearn.linear_model import LogisticRegression  # noqa: E402
 
 import main  # noqa: E402
-from evals.run_eval import auc  # noqa: E402
+from finder.metrics import auc  # noqa: E402
 from finder import images  # noqa: E402
 from finder.store import Store  # noqa: E402
 

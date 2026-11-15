@@ -3,3 +3,4 @@ cryptography>=43
 pyyaml>=6
 pytest>=8
 google-genai>=3.3
+mcp>=2.3
