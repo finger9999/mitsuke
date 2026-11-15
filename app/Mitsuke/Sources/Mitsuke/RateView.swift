@@ -1,5 +1,6 @@
 // 빠른 평가: 사진을 크게 하나씩 보면서 👍👎만 누른다. ← 👎 / → 👍 / 스페이스 건너뛰기.
-// 모인 평가는 채점할 때 비교 사진으로 쓰이고, 나중에 평가셋(정답)이 된다.
+// 모인 평가는 채점할 때 비교 사진으로 쓰이고, 평가셋(정답)이 된다.
+// AI 점수와 이유는 보여주지 않는다. 보이면 사용자의 판단이 AI 쪽으로 끌려(앵커링) 평가셋이 오염된다.
 
 import SwiftUI
 
@@ -63,15 +64,11 @@ struct RateView: View {
 
             HStack {
                 Text(Fmt.yen(item.priceJPY)).font(.title2.weight(.semibold))
-                if let score = item.score { ScoreBadge(score: score) }
-                if item.status == "filtered" { Text("규칙 탈락").font(.caption).foregroundStyle(.orange) }
                 Spacer()
                 Text(item.search).font(.caption).foregroundStyle(.secondary)
             }
             Text(item.title).font(.callout).lineLimit(2)
-            if let reason = item.filterReason ?? item.scoreReason {
-                Text("AI: \(reason)").font(.caption).foregroundStyle(.secondary).lineLimit(3)
-            }
+            Text("AI 점수는 내 판단에 영향을 주지 않게 가려 둬요").font(.caption2).foregroundStyle(.tertiary)
 
             HStack(spacing: 12) {
                 Button { rate(-1) } label: {
